@@ -135,6 +135,30 @@ static void TestGenerationPositionPolicy(void)
         ZDT_STEPPER_REQUEST_ACCEPTED);
 }
 
+static void TestGeneration2HighRateAndCoalescing(void)
+{
+    ZdtStepper_Init();
+    assert(ZdtStepper_SelectBackupBackend());
+    assert(ZdtStepper_RequestPosition(ZDT_STEPPER_AXIS_GEN2,
+        1000, 60U, 1000U, ZDT_POSITION_ABSOLUTE) ==
+        ZDT_STEPPER_REQUEST_ACCEPTED);
+    assert(ZdtStepper_RequestPosition(ZDT_STEPPER_AXIS_GEN2,
+        2000, 60U, 1000U, ZDT_POSITION_ABSOLUTE) ==
+        ZDT_STEPPER_REQUEST_ACCEPTED);
+    assert(g_zdt_stepper_diag.axis[ZDT_STEPPER_AXIS_GEN2]
+        .coalesced_request_count == 1U);
+
+    ZdtStepper_Service(2000U);
+    assert(CountFunction(0xFDU) == 1U);
+    assert(ZdtStepper_RequestPosition(ZDT_STEPPER_AXIS_GEN2,
+        3000, 60U, 1000U, ZDT_POSITION_ABSOLUTE) ==
+        ZDT_STEPPER_REQUEST_ACCEPTED);
+    ZdtStepper_Service(3000U);
+    assert(CountFunction(0xFDU) == 1U);
+    ZdtStepper_Service(4000U);
+    assert(CountFunction(0xFDU) == 2U);
+}
+
 static void TestSpeedLeaseStopsMotor(void)
 {
     ZdtStepper_Init();
@@ -182,6 +206,7 @@ int main(void)
     TestDefaultIsSilent();
     TestSpeedDeduplication();
     TestGenerationPositionPolicy();
+    TestGeneration2HighRateAndCoalescing();
     TestSpeedLeaseStopsMotor();
     TestDeselectStopsAndDisables();
     return 0;

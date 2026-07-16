@@ -4,6 +4,7 @@
 
 #include "FreeRTOS.h"
 #include "bsp_led.h"
+#include "bsp_time.h"
 #include "command_service.h"
 #include "motor_profile.h"
 #include "queue.h"
@@ -13,8 +14,9 @@
 #include "system_health.h"
 #include "task.h"
 #include "telemetry.h"
+#include "zdt_stepper.h"
 
-#define SERVICE_TASK_PERIOD pdMS_TO_TICKS(2U)
+#define SERVICE_TASK_PERIOD pdMS_TO_TICKS(1U)
 #define SERVICE_HEARTBEAT_TIMEOUT pdMS_TO_TICKS(1500U)
 #define SERVICE_HEALTH_REFRESH_PERIOD pdMS_TO_TICKS(100U)
 #define SERVICE_HEALTH_TELEMETRY_PERIOD pdMS_TO_TICKS(1000U)
@@ -39,6 +41,7 @@ void ServiceTask_Entry(void *context)
         g_rtos_diag.service_task_last_wake_tick = now;
 
         CommandService_ProcessRx();
+        ZdtStepper_Service(BSP_Time_GetUs());
         SerialTx_Service();
 
         if (xQueueReceive(

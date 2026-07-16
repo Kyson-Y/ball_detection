@@ -6,10 +6,14 @@
 
 #include "bsp_zdt_uart.h"
 
-#define ZDT_STEPPER_MIN_TX_INTERVAL_US   20000UL
-#define ZDT_STEPPER_POLL_INTERVAL_US     50000UL
-#define ZDT_STEPPER_RESPONSE_TIMEOUT_US  20000UL
-#define ZDT_STEPPER_OFFLINE_TIMEOUTS     3U
+#define ZDT_GEN1_MIN_TX_INTERVAL_US      20000UL
+#define ZDT_GEN2_MIN_TX_INTERVAL_US       2000UL
+#define ZDT_GEN1_POLL_INTERVAL_US        50000UL
+#define ZDT_GEN2_POLL_INTERVAL_US        10000UL
+#define ZDT_GEN1_RESPONSE_TIMEOUT_US     20000UL
+#define ZDT_GEN2_RESPONSE_TIMEOUT_US      6000UL
+#define ZDT_GEN1_OFFLINE_TIMEOUTS            3U
+#define ZDT_GEN2_OFFLINE_TIMEOUTS            5U
 #define ZDT_STEPPER_SPEED_LEASE_US       1500000UL
 
 #define ZDT_STATUS_ENABLED         (1U << 0)
@@ -82,22 +86,54 @@ static bool ZdtStepper_FrameEquals(const zdt_protocol_frame_t *left,
         (memcmp(left->bytes, right->bytes, left->length) == 0);
 }
 
+static uint32_t ZdtStepper_MinTxIntervalUs(zdt_stepper_axis_t axis)
+{
+    return (axis == ZDT_STEPPER_AXIS_GEN1) ?
+        ZDT_GEN1_MIN_TX_INTERVAL_US : ZDT_GEN2_MIN_TX_INTERVAL_US;
+}
+
+static uint32_t ZdtStepper_PollIntervalUs(zdt_stepper_axis_t axis)
+{
+    return (axis == ZDT_STEPPER_AXIS_GEN1) ?
+        ZDT_GEN1_POLL_INTERVAL_US : ZDT_GEN2_POLL_INTERVAL_US;
+}
+
+static uint32_t ZdtStepper_ResponseTimeoutUs(zdt_stepper_axis_t axis)
+{
+    return (axis == ZDT_STEPPER_AXIS_GEN1) ?
+        ZDT_GEN1_RESPONSE_TIMEOUT_US : ZDT_GEN2_RESPONSE_TIMEOUT_US;
+}
+
+static uint8_t ZdtStepper_OfflineTimeouts(zdt_stepper_axis_t axis)
+{
+    return (axis == ZDT_STEPPER_AXIS_GEN1) ?
+        ZDT_GEN1_OFFLINE_TIMEOUTS : ZDT_GEN2_OFFLINE_TIMEOUTS;
+}
+
 static zdt_stepper_request_status_t ZdtStepper_StageFrame(
     zdt_stepper_axis_t axis, const zdt_protocol_frame_t *frame,
     zdt_motion_type_t motion_type)
 {
     zdt_stepper_state_t *state = &s_state[axis];
 
-    if (state->pending_valid != 0U) {
-        g_zdt_stepper_diag.axis[axis].rejected_request_count++;
-        return ZDT_STEPPER_REQUEST_BUSY;
-    }
-
     if ((motion_type != ZDT_MOTION_NONE) &&
         (state->last_motion_valid != 0U) &&
         ZdtStepper_FrameEquals(frame, &state->last_motion_frame)) {
         g_zdt_stepper_diag.axis[axis].duplicate_request_count++;
         return ZDT_STEPPER_REQUEST_DUPLICATE;
+    }
+
+    if (state->pending_valid != 0U) {
+        uint8_t pending_function = state->pending_frame.bytes[1];
+        bool pending_is_motion =
+            (pending_function == 0xF6U) || (pending_function == 0xFDU);
+
+        if ((axis != ZDT_STEPPER_AXIS_GEN2) ||
+            (motion_type == ZDT_MOTION_NONE) || !pending_is_motion) {
+            g_zdt_stepper_diag.axis[axis].rejected_request_count++;
+            return ZDT_STEPPER_REQUEST_BUSY;
+        }
+        g_zdt_stepper_diag.axis[axis].coalesced_request_count++;
     }
 
     state->pending_frame = *frame;
@@ -356,10 +392,10 @@ static void ZdtStepper_ServiceSpeedLease(
     }
 }
 
-static zdt_query_t ZdtStepper_NextQuery(zdt_stepper_state_t *state)
+static zdt_query_t ZdtStepper_NextQuery(
+    zdt_stepper_axis_t axis, zdt_stepper_state_t *state)
 {
-    static const zdt_query_t query_order[] = {
-        ZDT_QUERY_FIRMWARE_VERSION,
+    static const zdt_query_t gen1_query_order[] = {
         ZDT_QUERY_MOTOR_STATUS,
         ZDT_QUERY_REALTIME_SPEED,
         ZDT_QUERY_REALTIME_POSITION,
@@ -367,11 +403,34 @@ static zdt_query_t ZdtStepper_NextQuery(zdt_stepper_state_t *state)
         ZDT_QUERY_REALTIME_SPEED,
         ZDT_QUERY_REALTIME_POSITION
     };
-    zdt_query_t query = query_order[state->poll_index];
+    static const zdt_query_t gen2_query_order[] = {
+        ZDT_QUERY_REALTIME_POSITION,
+        ZDT_QUERY_REALTIME_SPEED,
+        ZDT_QUERY_REALTIME_POSITION,
+        ZDT_QUERY_MOTOR_STATUS
+    };
+    const zdt_query_t *query_order;
+    uint8_t query_count;
+    zdt_query_t query;
+
+    if (state->poll_index == 0U) {
+        state->poll_index = 1U;
+        return ZDT_QUERY_FIRMWARE_VERSION;
+    }
+
+    if (axis == ZDT_STEPPER_AXIS_GEN1) {
+        query_order = gen1_query_order;
+        query_count = (uint8_t) (
+            sizeof(gen1_query_order) / sizeof(gen1_query_order[0]));
+    } else {
+        query_order = gen2_query_order;
+        query_count = (uint8_t) (
+            sizeof(gen2_query_order) / sizeof(gen2_query_order[0]));
+    }
+    query = query_order[state->poll_index - 1U];
 
     state->poll_index++;
-    if (state->poll_index >=
-        (uint8_t) (sizeof(query_order) / sizeof(query_order[0]))) {
+    if (state->poll_index > query_count) {
         state->poll_index = 1U;
     }
     return query;
@@ -417,7 +476,8 @@ static void ZdtStepper_ServiceAxis(zdt_stepper_axis_t axis,
         state->expected_query = 0U;
         state->consecutive_timeouts++;
         g_zdt_stepper_diag.axis[axis].response_timeout_count++;
-        if (state->consecutive_timeouts >= ZDT_STEPPER_OFFLINE_TIMEOUTS) {
+        if (state->consecutive_timeouts >=
+            ZdtStepper_OfflineTimeouts(axis)) {
             g_zdt_stepper_diag.axis[axis].online = 0U;
         }
     }
@@ -432,13 +492,16 @@ static void ZdtStepper_ServiceAxis(zdt_stepper_axis_t axis,
 
     if (!BSP_ZdtUart_IsTxIdle(ZdtStepper_Port(axis)) ||
         !ZdtStepper_TimeReached(now_us,
-            state->last_tx_us + ZDT_STEPPER_MIN_TX_INTERVAL_US)) {
+            state->last_tx_us + ZdtStepper_MinTxIntervalUs(axis))) {
         return;
     }
 
     if (state->pending_valid != 0U) {
         if (state->expected_query != 0U) {
-            return;
+            if (axis == ZDT_STEPPER_AXIS_GEN1) {
+                return;
+            }
+            state->expected_query = 0U;
         }
         if (ZdtStepper_SendFrame(
                 axis, &state->pending_frame, now_us, false)) {
@@ -455,14 +518,14 @@ static void ZdtStepper_ServiceAxis(zdt_stepper_axis_t axis,
         return;
     }
 
-    query = ZdtStepper_NextQuery(state);
+    query = ZdtStepper_NextQuery(axis, state);
     if (ZdtProtocol_BuildQuery(
             g_zdt_stepper_config[axis].address, query, &query_frame) &&
         ZdtStepper_SendFrame(axis, &query_frame, now_us, true)) {
         state->expected_query = (uint8_t) query;
         state->response_deadline_us =
-            now_us + ZDT_STEPPER_RESPONSE_TIMEOUT_US;
-        state->next_poll_us = now_us + ZDT_STEPPER_POLL_INTERVAL_US;
+            now_us + ZdtStepper_ResponseTimeoutUs(axis);
+        state->next_poll_us = now_us + ZdtStepper_PollIntervalUs(axis);
     }
 }
 

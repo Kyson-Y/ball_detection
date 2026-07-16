@@ -14,7 +14,6 @@
 #include "rtos_hooks.h"
 #include "task.h"
 #include "telemetry.h"
-#include "zdt_stepper.h"
 
 #define SYSTEM_TASK_PERIOD \
     pdMS_TO_TICKS(RTOS_DIAGNOSTICS_SYSTEM_PERIOD_US / 1000U)
@@ -63,7 +62,6 @@ void SystemTask_Entry(void *context)
             g_motor_profile_diag.left_output_rpm,
             g_motor_profile_diag.right_output_rpm,
             encoder_period_us);
-        ZdtStepper_Service(start_us);
         ParameterService_ApplyPendingAtControlBoundary();
 
         g_rtos_diag.system_task_run_count++;

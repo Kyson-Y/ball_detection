@@ -87,3 +87,26 @@
   `4615539E2032A871FDE4F126A3595045FC5E3F38934FA19195E3EB848DBF31F4`。
 - 第一代仍未接线、未运动；第二代带载、电流、温升、堵转和机械限位仍未验证。
 - 本次结果在 `codex/zdt-dual-uart-stepper` 分支提交；正式 `E:\ECHO` 工作目录未直接修改。
+
+## 2026-07-17 第二代高频位置控制
+
+- 状态机从 10 ms SystemTask 迁移到 1 ms ServiceTask；第一代仍为 20 ms 最小发帧，第二代
+  改为 2 ms 最小发帧，理论调度上限 500 Hz。
+- 第二代查询改为总计约 100 Hz：位置约 50 Hz、速度约 25 Hz、状态约 25 Hz；运动命令
+  可抢占等待中的查询，查询晚到回复仍正常解析。
+- 第二代尚未发出的运动目标采用 latest-wins 合并；高频帧可抑制逐条 120 B 详细回执，
+  另以 20 Hz Status 采样完整位置、速度和状态。
+- 单次 `+15 deg` 和回程验收在新任务归属下再次通过，位置误差保持小于 0.05 deg；速度、
+  Stop、失能和 1.5 s 自动停止租约无回归。
+- 100 Hz、1 Hz、幅值 5 deg 正弦跟踪 RMS 为 0.83-0.99 deg，最大误差 1.29-1.52 deg；
+  3200 pulse/rev 导致 0.1125 deg 目标量化，慢速峰值附近重复目标被去重。
+- 2 Hz、幅值 10 deg 三角吞吐结果：100/200/300/400 Hz 请求分别实发
+  94.5/199.5/292.5/362.5 Hz；四档均无第二代超时、无效响应或堵转，回中心误差不超过
+  0.055 deg。
+- 三角跟踪 RMS：100 Hz 3.221 deg、200 Hz 3.033 deg、300 Hz 3.470 deg、400 Hz
+  5.432 deg；400 Hz 最大误差 10.961 deg。因此冻结推荐控制频率 200 Hz，400 Hz 仅为
+  已验证的通信/调度上限。
+- 最终 5 秒静态遥测：512 Control / 5 Health / 5 Profile，100/1/1 Hz；CRC、gap、deadline、
+  drop、UART overflow、I2C、active/sticky issue 全为 0；电机已失能、静止并退出备用后端。
+- 最终 FreeRTOS/App 全量重建均为 0 Error / 0 Warning；App Code=72,432、RO=3,424、
+  RW=28、ZI=17,740。最终 HEX 已完成 OpenOCD program/verify/reset。

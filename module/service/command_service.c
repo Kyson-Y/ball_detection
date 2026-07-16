@@ -23,6 +23,7 @@
 
 #define COMMAND_ZDT_MAGIC         0x5A445442UL
 #define COMMAND_ZDT_MAGIC_INVERSE 0xA5BBABBDUL
+#define COMMAND_ZDT_FLAG_SUPPRESS_ACK (1U << 0)
 
 #define COMMAND_ZDT_AXIS_GEN1 0U
 #define COMMAND_ZDT_AXIS_GEN2 1U
@@ -320,6 +321,7 @@ static void Command_HandleZdtFrame(const uint8_t *payload)
     uint8_t operation = payload[12];
     uint8_t axis = payload[13];
     uint8_t position_mode = payload[14];
+    uint8_t command_flags = payload[15];
     int32_t value = Command_GetI32(&payload[16]);
     uint16_t speed_rpm = Command_GetU16(&payload[20]);
     uint32_t acceleration_rpm_s = Command_GetU32(&payload[24]);
@@ -335,6 +337,8 @@ static void Command_HandleZdtFrame(const uint8_t *payload)
         (magic_inverse != COMMAND_ZDT_MAGIC_INVERSE) ||
         (ack.sequence == 0U)) {
         status = COMMAND_ZDT_STATUS_BAD_MAGIC;
+    } else if ((command_flags & ~COMMAND_ZDT_FLAG_SUPPRESS_ACK) != 0U) {
+        status = COMMAND_ZDT_STATUS_BAD_OPERATION;
     } else if (operation == COMMAND_ZDT_OP_SELECT) {
         if (!ZdtStepper_SelectBackupBackend()) {
             status = COMMAND_ZDT_STATUS_SELECT_FAILED;
@@ -388,8 +392,12 @@ static void Command_HandleZdtFrame(const uint8_t *payload)
         &ack.axis_snapshot[0], ZDT_STEPPER_AXIS_GEN1);
     Command_FillZdtAxisSnapshot(
         &ack.axis_snapshot[1], ZDT_STEPPER_AXIS_GEN2);
-    if (!Telemetry_PublishZdtAck(&ack)) {
-        g_command_service_diag.zdt_ack_drop_count++;
+    if ((command_flags & COMMAND_ZDT_FLAG_SUPPRESS_ACK) != 0U) {
+        g_command_service_diag.zdt_ack_suppressed_count++;
+    } else {
+        if (!Telemetry_PublishZdtAck(&ack)) {
+            g_command_service_diag.zdt_ack_drop_count++;
+        }
     }
     g_command_service_diag.zdt_frame_count++;
 }

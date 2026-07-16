@@ -41,6 +41,7 @@ typedef struct {
     uint32_t accepted_request_count;
     uint32_t rejected_request_count;
     uint32_t duplicate_request_count;
+    uint32_t coalesced_request_count;
     uint32_t response_count;
     uint32_t invalid_response_count;
     uint32_t response_timeout_count;
