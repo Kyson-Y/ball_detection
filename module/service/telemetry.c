@@ -208,6 +208,20 @@ static uint16_t Telemetry_EncodeControl(
     Telemetry_PutU32(&payload[28], sample->jitter_us);
     Telemetry_PutU32(&payload[32], sample->deadline_miss_count);
     Telemetry_PutU32(&payload[36], sample->flags);
+    Telemetry_PutFloat(&payload[40], sample->right_auxiliary);
+    Telemetry_PutFloat(&payload[44], sample->right_setpoint);
+    Telemetry_PutFloat(&payload[48], sample->left_pid_proportional);
+    Telemetry_PutFloat(&payload[52], sample->left_pid_integrator);
+    Telemetry_PutFloat(&payload[56], sample->left_pid_derivative);
+    Telemetry_PutFloat(&payload[60], sample->left_pid_feedforward);
+    Telemetry_PutFloat(&payload[64], sample->right_pid_proportional);
+    Telemetry_PutFloat(&payload[68], sample->right_pid_integrator);
+    Telemetry_PutFloat(&payload[72], sample->right_pid_derivative);
+    Telemetry_PutFloat(&payload[76], sample->right_pid_feedforward);
+    Telemetry_PutFloat(&payload[80], sample->active_kp);
+    Telemetry_PutFloat(&payload[84], sample->active_ki);
+    Telemetry_PutFloat(&payload[88], sample->active_kd);
+    Telemetry_PutU32(&payload[92], sample->parameter_apply_sequence);
     return Telemetry_EndFrame(frame, payload_length);
 }
 

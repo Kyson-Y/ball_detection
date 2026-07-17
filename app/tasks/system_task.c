@@ -39,6 +39,7 @@ void SystemTask_Entry(void *context)
         bsp_encoder_sample_t left_encoder;
         bsp_encoder_sample_t right_encoder;
         telemetry_control_sample_t sample;
+        control_tuning_parameters_t tuning;
 
         delayed = xTaskDelayUntil(&last_wake_time, SYSTEM_TASK_PERIOD);
         now = xTaskGetTickCount();
@@ -63,6 +64,7 @@ void SystemTask_Entry(void *context)
             g_motor_profile_diag.right_output_rpm,
             encoder_period_us);
         ParameterService_ApplyPendingAtControlBoundary();
+        ParameterService_GetSnapshot(&tuning);
 
         g_rtos_diag.system_task_run_count++;
         g_rtos_diag.system_task_last_wake_tick = now;
@@ -90,6 +92,26 @@ void SystemTask_Entry(void *context)
             sample.control_output = g_motor_profile_diag.right_output_rpm;
             sample.auxiliary =
                 (float) g_chassis_actuator_diag.normalized_left_permille;
+            sample.right_auxiliary =
+                (float) g_chassis_actuator_diag.normalized_right_permille;
+            sample.right_setpoint =
+                (float) g_chassis_actuator_diag.right_target_deci_rpm * 0.1f;
+            sample.left_pid_proportional =
+                g_chassis_actuator_diag.left_pid_proportional_permille;
+            sample.left_pid_integrator =
+                g_chassis_actuator_diag.left_pid_integrator_permille;
+            sample.left_pid_derivative =
+                g_chassis_actuator_diag.left_pid_derivative_permille;
+            sample.left_pid_feedforward =
+                g_chassis_actuator_diag.left_pid_feedforward_permille;
+            sample.right_pid_proportional =
+                g_chassis_actuator_diag.right_pid_proportional_permille;
+            sample.right_pid_integrator =
+                g_chassis_actuator_diag.right_pid_integrator_permille;
+            sample.right_pid_derivative =
+                g_chassis_actuator_diag.right_pid_derivative_permille;
+            sample.right_pid_feedforward =
+                g_chassis_actuator_diag.right_pid_feedforward_permille;
         } else {
             sample.setpoint =
                 (g_chassis_actuator_diag.applied_left_permille != 0) ?
@@ -98,7 +120,22 @@ void SystemTask_Entry(void *context)
             sample.measurement = (float) left_encoder.delta_counts;
             sample.control_output = (float) right_encoder.delta_counts;
             sample.auxiliary = (float) right_encoder.delta_counts * 4.0f;
+            sample.right_auxiliary =
+                (float) g_chassis_actuator_diag.applied_right_permille;
+            sample.right_setpoint = 0.0f;
+            sample.left_pid_proportional = 0.0f;
+            sample.left_pid_integrator = 0.0f;
+            sample.left_pid_derivative = 0.0f;
+            sample.left_pid_feedforward = 0.0f;
+            sample.right_pid_proportional = 0.0f;
+            sample.right_pid_integrator = 0.0f;
+            sample.right_pid_derivative = 0.0f;
+            sample.right_pid_feedforward = 0.0f;
         }
+        sample.active_kp = tuning.kp;
+        sample.active_ki = tuning.ki;
+        sample.active_kd = tuning.kd;
+        sample.parameter_apply_sequence = tuning.update_sequence;
         sample.loop_count = g_rtos_diag.system_task_run_count;
         sample.period_us = g_rtos_diag.system_last_period_us;
         sample.execution_us = g_rtos_diag.system_last_execution_us;

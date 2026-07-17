@@ -6,7 +6,7 @@
 
 #define CHASSIS_ACTUATOR_DEBUG_MAGIC         0x4543484FUL
 #define CHASSIS_ACTUATOR_DEBUG_MAGIC_INVERSE 0xBABCB7B0UL
-#define CHASSIS_ACTUATOR_TEST_MAX_PERMILLE   500
+#define CHASSIS_ACTUATOR_TEST_MAX_PERMILLE   650
 #define CHASSIS_ACTUATOR_TEST_MAX_DURATION_MS 1000U
 #define CHASSIS_ACTUATOR_SPEED_MAX_DURATION_MS 30000U
 
@@ -74,12 +74,22 @@ typedef struct {
     float right_measured_rpm;
     float left_filtered_rpm;
     float right_filtered_rpm;
+    float left_pid_proportional_permille;
+    float left_pid_integrator_permille;
+    float left_pid_derivative_permille;
+    float left_pid_feedforward_permille;
+    float right_pid_proportional_permille;
+    float right_pid_integrator_permille;
+    float right_pid_derivative_permille;
+    float right_pid_feedforward_permille;
     uint8_t last_stop_reason;
     uint8_t control_mode;
     uint8_t speed_phase;
     uint8_t initialized;
     uint8_t armed;
     uint8_t output_permitted;
+    uint8_t continuous_speed;
+    uint8_t reserved;
 } chassis_actuator_diagnostics_t;
 
 /* Watch/debug readers must treat this as read-only. */

@@ -37,6 +37,34 @@ static uint8_t s_recovery_active_mask;
 static uint8_t s_crawl_drive_mask;
 static uint8_t s_crawl_kick_remaining[MOTOR_WHEEL_COUNT];
 static uint8_t s_crawl_rest_remaining[MOTOR_WHEEL_COUNT];
+static bool s_continuous_speed;
+
+static void ChassisActuator_UpdateControllerDiagnostics(void)
+{
+    const wheel_speed_controller_t *left =
+        &s_speed_controller[MOTOR_WHEEL_LEFT];
+    const wheel_speed_controller_t *right =
+        &s_speed_controller[MOTOR_WHEEL_RIGHT];
+
+    g_chassis_actuator_diag.left_filtered_rpm = left->filtered_rpm;
+    g_chassis_actuator_diag.right_filtered_rpm = right->filtered_rpm;
+    g_chassis_actuator_diag.left_pid_proportional_permille =
+        left->proportional_permille;
+    g_chassis_actuator_diag.left_pid_integrator_permille =
+        left->integrator_permille;
+    g_chassis_actuator_diag.left_pid_derivative_permille =
+        left->derivative_permille;
+    g_chassis_actuator_diag.left_pid_feedforward_permille =
+        left->feedforward_permille;
+    g_chassis_actuator_diag.right_pid_proportional_permille =
+        right->proportional_permille;
+    g_chassis_actuator_diag.right_pid_integrator_permille =
+        right->integrator_permille;
+    g_chassis_actuator_diag.right_pid_derivative_permille =
+        right->derivative_permille;
+    g_chassis_actuator_diag.right_pid_feedforward_permille =
+        right->feedforward_permille;
+}
 
 static uint16_t ChassisActuator_AbsPermille(int16_t value)
 {
@@ -241,11 +269,15 @@ static chassis_actuator_command_status_t ChassisActuator_ValidateRequest(
         request->magic_inverse != CHASSIS_ACTUATOR_DEBUG_MAGIC_INVERSE) {
         return CHASSIS_ACTUATOR_COMMAND_BAD_MAGIC;
     }
-    if (request->sequence == 0U || request->duration_ms == 0U) {
+    if (request->sequence == 0U ||
+        (request->duration_ms == 0U && request->reserved !=
+            (uint16_t) CHASSIS_ACTUATOR_MODE_SPEED)) {
         return CHASSIS_ACTUATOR_COMMAND_BAD_VALUE;
     }
 
     if (request->reserved == (uint16_t) CHASSIS_ACTUATOR_MODE_ELECTRICAL) {
+        const motor_profile_t *profile = MotorProfile_GetActive();
+
         if (!MotorProfile_ActuatorTestReady()) {
             return CHASSIS_ACTUATOR_COMMAND_PROFILE_LOCKED;
         }
@@ -255,7 +287,13 @@ static chassis_actuator_command_status_t ChassisActuator_ValidateRequest(
                 CHASSIS_ACTUATOR_TEST_MAX_PERMILLE ||
             ChassisActuator_AbsPermille(
                 request->right_electrical_permille) >
-                CHASSIS_ACTUATOR_TEST_MAX_PERMILLE) {
+                CHASSIS_ACTUATOR_TEST_MAX_PERMILLE ||
+            ChassisActuator_AbsPermille(
+                request->left_electrical_permille) >
+                profile->maximum_pwm_permille ||
+            ChassisActuator_AbsPermille(
+                request->right_electrical_permille) >
+                profile->maximum_pwm_permille) {
             return CHASSIS_ACTUATOR_COMMAND_BAD_VALUE;
         }
     } else if (request->reserved ==
@@ -285,7 +323,11 @@ static chassis_actuator_command_status_t ChassisActuator_ValidateRequest(
     if (request->right_electrical_permille != 0) {
         active_motor_count++;
     }
-    return (active_motor_count >= 1U && active_motor_count <= 2U) ?
+    if (active_motor_count >= 1U && active_motor_count <= 2U) {
+        return CHASSIS_ACTUATOR_COMMAND_STAGED;
+    }
+    return (active_motor_count == 0U && request->reserved ==
+        (uint16_t) CHASSIS_ACTUATOR_MODE_SPEED) ?
         CHASSIS_ACTUATOR_COMMAND_STAGED :
         CHASSIS_ACTUATOR_COMMAND_BAD_VALUE;
 }
@@ -326,6 +368,7 @@ void ChassisActuator_ForceSafe(chassis_actuator_stop_reason_t reason)
     s_crawl_drive_mask = 0U;
     memset(s_crawl_kick_remaining, 0, sizeof(s_crawl_kick_remaining));
     memset(s_crawl_rest_remaining, 0, sizeof(s_crawl_rest_remaining));
+    s_continuous_speed = false;
     g_chassis_actuator_diag.remaining_control_cycles = 0U;
     g_chassis_actuator_diag.boost_elapsed_cycles = 0U;
     g_chassis_actuator_diag.applied_left_permille = 0;
@@ -340,8 +383,10 @@ void ChassisActuator_ForceSafe(chassis_actuator_stop_reason_t reason)
         (uint8_t) CHASSIS_SPEED_PHASE_IDLE;
     g_chassis_actuator_diag.armed = 0U;
     g_chassis_actuator_diag.output_permitted = 0U;
+    g_chassis_actuator_diag.continuous_speed = 0U;
     g_chassis_actuator_diag.last_stop_reason = (uint8_t) reason;
     s_pending_valid = false;
+    ChassisActuator_UpdateControllerDiagnostics();
 }
 
 void ChassisActuator_Init(void)
@@ -350,6 +395,7 @@ void ChassisActuator_Init(void)
     memset((void *) &g_chassis_actuator_diag, 0,
         sizeof(g_chassis_actuator_diag));
     s_pending_valid = false;
+    s_continuous_speed = false;
     ChassisActuator_InitSpeedControllers();
     BSP_Motor_Init();
     ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_NONE);
@@ -654,10 +700,7 @@ void ChassisActuator_ServiceAtControlBoundary(
 
     g_chassis_actuator_diag.left_measured_rpm = left_measured_rpm;
     g_chassis_actuator_diag.right_measured_rpm = right_measured_rpm;
-    g_chassis_actuator_diag.left_filtered_rpm =
-        s_speed_controller[MOTOR_WHEEL_LEFT].filtered_rpm;
-    g_chassis_actuator_diag.right_filtered_rpm =
-        s_speed_controller[MOTOR_WHEEL_RIGHT].filtered_rpm;
+    ChassisActuator_UpdateControllerDiagnostics();
 
     if (schedule_resynchronized) {
         if (g_chassis_actuator_diag.output_permitted != 0U) {
@@ -675,6 +718,18 @@ void ChassisActuator_ServiceAtControlBoundary(
     }
     taskEXIT_CRITICAL();
 
+    if (pending && request.reserved ==
+            (uint16_t) CHASSIS_ACTUATOR_MODE_SPEED &&
+        request.left_electrical_permille == 0 &&
+        request.right_electrical_permille == 0) {
+        g_chassis_actuator_diag.accepted_request_count++;
+        g_chassis_actuator_diag.speed_retarget_count++;
+        g_chassis_actuator_diag.last_request_sequence = request.sequence;
+        ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_COMPLETE);
+        g_chassis_actuator_diag.last_request_sequence = request.sequence;
+        return;
+    }
+
     if (pending && g_chassis_actuator_diag.output_permitted != 0U) {
         if (g_chassis_actuator_diag.control_mode !=
                 (uint8_t) CHASSIS_ACTUATOR_MODE_SPEED ||
@@ -689,8 +744,9 @@ void ChassisActuator_ServiceAtControlBoundary(
             return;
         }
 
-        cycles = (uint16_t) ((request.duration_ms +
-            CHASSIS_ACTUATOR_CONTROL_PERIOD_MS - 1U) /
+        s_continuous_speed = (request.duration_ms == 0U);
+        cycles = s_continuous_speed ? 1U : (uint16_t) (
+            (request.duration_ms + CHASSIS_ACTUATOR_CONTROL_PERIOD_MS - 1U) /
             CHASSIS_ACTUATOR_CONTROL_PERIOD_MS);
         g_chassis_actuator_diag.left_target_deci_rpm =
             request.left_electrical_permille;
@@ -703,6 +759,8 @@ void ChassisActuator_ServiceAtControlBoundary(
         g_chassis_actuator_diag.accepted_request_count++;
         g_chassis_actuator_diag.speed_retarget_count++;
         g_chassis_actuator_diag.armed = 1U;
+        g_chassis_actuator_diag.continuous_speed =
+            s_continuous_speed ? 1U : 0U;
         s_common_low_speed_cycles = 0U;
         s_common_recovery_remaining = 0U;
         s_recovery_candidate_mask = 0U;
@@ -716,11 +774,13 @@ void ChassisActuator_ServiceAtControlBoundary(
     }
 
     if (g_chassis_actuator_diag.remaining_control_cycles != 0U) {
-        g_chassis_actuator_diag.remaining_control_cycles--;
-        if (g_chassis_actuator_diag.remaining_control_cycles == 0U) {
-            ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_COMPLETE);
-            g_chassis_actuator_diag.completed_pulse_count++;
-            return;
+        if (!s_continuous_speed) {
+            g_chassis_actuator_diag.remaining_control_cycles--;
+            if (g_chassis_actuator_diag.remaining_control_cycles == 0U) {
+                ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_COMPLETE);
+                g_chassis_actuator_diag.completed_pulse_count++;
+                return;
+            }
         }
         if (g_chassis_actuator_diag.control_mode ==
             (uint8_t) CHASSIS_ACTUATOR_MODE_SPEED) {
@@ -731,6 +791,7 @@ void ChassisActuator_ServiceAtControlBoundary(
                 ChassisActuator_ForceSafe(
                     CHASSIS_ACTUATOR_STOP_REJECTED);
             }
+            ChassisActuator_UpdateControllerDiagnostics();
             return;
         }
     }
@@ -748,8 +809,10 @@ void ChassisActuator_ServiceAtControlBoundary(
         return;
     }
 
-    cycles = (uint16_t) ((request.duration_ms +
-        CHASSIS_ACTUATOR_CONTROL_PERIOD_MS - 1U) /
+    s_continuous_speed = request.reserved ==
+        (uint16_t) CHASSIS_ACTUATOR_MODE_SPEED && request.duration_ms == 0U;
+    cycles = s_continuous_speed ? 1U : (uint16_t) (
+        (request.duration_ms + CHASSIS_ACTUATOR_CONTROL_PERIOD_MS - 1U) /
         CHASSIS_ACTUATOR_CONTROL_PERIOD_MS);
     g_chassis_actuator_diag.control_mode = (uint8_t) request.reserved;
     if (request.reserved ==
@@ -813,6 +876,9 @@ void ChassisActuator_ServiceAtControlBoundary(
         (uint8_t) CHASSIS_ACTUATOR_STOP_NONE;
     g_chassis_actuator_diag.armed = 1U;
     g_chassis_actuator_diag.output_permitted = 1U;
+    g_chassis_actuator_diag.continuous_speed =
+        s_continuous_speed ? 1U : 0U;
+    ChassisActuator_UpdateControllerDiagnostics();
 }
 
 void RtosFault_EmergencyStop(void)

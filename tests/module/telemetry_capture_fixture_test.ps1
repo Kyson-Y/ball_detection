@@ -42,9 +42,13 @@ function New-Frame {
 }
 
 function New-ControlPayload {
-    param([uint32]$LoopCount)
+    param(
+        [uint32]$LoopCount,
+        [ValidateSet(40, 44, 96)]
+        [int]$PayloadLength = 96
+    )
 
-    $payload = New-Object byte[] 40
+    $payload = New-Object byte[] $payloadLength
     [BitConverter]::GetBytes([single]1.0).CopyTo($payload, 0)
     [BitConverter]::GetBytes([single]0.8).CopyTo($payload, 4)
     [BitConverter]::GetBytes([single]0.2).CopyTo($payload, 8)
@@ -55,6 +59,20 @@ function New-ControlPayload {
     [BitConverter]::GetBytes([uint32]1).CopyTo($payload, 28)
     [BitConverter]::GetBytes([uint32]0).CopyTo($payload, 32)
     [BitConverter]::GetBytes([uint32]1).CopyTo($payload, 36)
+    if ($PayloadLength -ge 44) {
+        [BitConverter]::GetBytes([single]2.0).CopyTo($payload, 40)
+    }
+    if ($PayloadLength -eq 96) {
+        [BitConverter]::GetBytes([single]1.1).CopyTo($payload, 44)
+        for ($field = 0; $field -lt 8; $field++) {
+            [BitConverter]::GetBytes([single](10 + $field)).CopyTo(
+                $payload, 48 + ($field * 4))
+        }
+        [BitConverter]::GetBytes([single]3.0).CopyTo($payload, 80)
+        [BitConverter]::GetBytes([single]8.0).CopyTo($payload, 84)
+        [BitConverter]::GetBytes([single]0.0).CopyTo($payload, 88)
+        [BitConverter]::GetBytes([uint32]17).CopyTo($payload, 92)
+    }
     return ,$payload
 }
 
@@ -95,12 +113,16 @@ $binaryPath = Join-Path ([System.IO.Path]::GetTempPath()) `
     "echo-phase1f-telemetry-fixture.bin"
 $jsonPath = Join-Path ([System.IO.Path]::GetTempPath()) `
     "echo-phase1f-telemetry-fixture.json"
+$csvPath = Join-Path ([System.IO.Path]::GetTempPath()) `
+    "echo-phase1f-telemetry-fixture.csv"
 $bytes = [System.Collections.Generic.List[byte]]::new()
 [uint32]$sequence = 0
 
 try {
     for ($index = 0; $index -lt 200; $index++) {
-        $control = New-Frame -Type 1 -Payload (New-ControlPayload $index) `
+        $payloadLength = @(40, 44, 96)[$index % 3]
+        $controlPayload = New-ControlPayload $index $payloadLength
+        $control = New-Frame -Type 1 -Payload $controlPayload `
             -Sequence $sequence -TimestampUs ([uint32]($index * 10000))
         $bytes.AddRange($control)
         $sequence++
@@ -114,12 +136,17 @@ try {
         }
     }
     [System.IO.File]::WriteAllBytes($binaryPath, $bytes.ToArray())
-    & $capturePath -InputPath $binaryPath -JsonPath $jsonPath | Out-Host
+    & $capturePath -InputPath $binaryPath -JsonPath $jsonPath `
+        -CsvPath $csvPath | Out-Host
     if (($null -ne $LASTEXITCODE) -and ($LASTEXITCODE -ne 0)) {
         throw "telemetry_capture.ps1 returned $LASTEXITCODE"
     }
 
     $summary = Get-Content -Raw -LiteralPath $jsonPath | ConvertFrom-Json
+    $csvRows = @(Import-Csv -LiteralPath $csvPath)
+    $extendedRow = $csvRows | Where-Object {
+        $_.parameter_apply_sequence -eq "17"
+    } | Select-Object -First 1
     if (($summary.ValidFrames -ne 202) -or
         ($summary.ControlFrames -ne 200) -or
         ($summary.HealthFrames -ne 2) -or
@@ -137,7 +164,13 @@ try {
         ($summary.LatestHealth.QuietReleasedCount -ne 10) -or
         ($summary.LatestHealth.DisplayRefreshCount -ne 10) -or
         ($summary.LatestHealth.ServiceStackFreeWords -ne 140) -or
-        ($summary.LatestHealth.SerialRingHighWaterBytes -ne 372)) {
+        ($summary.LatestHealth.SerialRingHighWaterBytes -ne 372) -or
+        ($csvRows.Count -ne 200) -or ($null -eq $extendedRow) -or
+        ([Math]::Abs([double]$extendedRow.right_setpoint - 1.1) -gt 0.0001) -or
+        ([Math]::Abs([double]$extendedRow.left_pid_proportional - 10.0) -gt 0.0001) -or
+        ([Math]::Abs([double]$extendedRow.right_pid_feedforward - 17.0) -gt 0.0001) -or
+        ([Math]::Abs([double]$extendedRow.active_kp - 3.0) -gt 0.0001) -or
+        ([Math]::Abs([double]$extendedRow.active_ki - 8.0) -gt 0.0001)) {
         throw "Telemetry fixture summary did not match expected values."
     }
     Write-Output "telemetry capture fixture: PASS"
@@ -145,4 +178,5 @@ try {
 finally {
     Remove-Item -LiteralPath $binaryPath -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $jsonPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $csvPath -Force -ErrorAction SilentlyContinue
 }

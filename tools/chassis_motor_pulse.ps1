@@ -11,7 +11,7 @@ param(
     [Parameter(Mandatory = $true)]
     [ValidateSet("LogicOnly", "MotorPowered")]
     [string]$Mode,
-    [ValidateRange(-500, 500)]
+    [ValidateRange(-650, 650)]
     [int]$ElectricalPermille = 50,
     [ValidateRange(50, 1000)]
     [int]$DurationMs = 200,

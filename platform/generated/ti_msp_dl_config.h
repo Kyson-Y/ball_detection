@@ -159,18 +159,18 @@ bool SYSCFG_DL_SYSCTL_SYSPLL_init(void);
 
 
 /* Defines for DEBUG_UART */
-#define DEBUG_UART_INST                                                    UART1
+#define DEBUG_UART_INST                                                    UART0
 #define DEBUG_UART_INST_FREQUENCY                                       40000000
-#define DEBUG_UART_INST_IRQHandler                              UART1_IRQHandler
-#define DEBUG_UART_INST_INT_IRQN                                  UART1_INT_IRQn
+#define DEBUG_UART_INST_IRQHandler                              UART0_IRQHandler
+#define DEBUG_UART_INST_INT_IRQN                                  UART0_INT_IRQn
 #define GPIO_DEBUG_UART_RX_PORT                                            GPIOA
 #define GPIO_DEBUG_UART_TX_PORT                                            GPIOA
-#define GPIO_DEBUG_UART_RX_PIN                                     DL_GPIO_PIN_9
-#define GPIO_DEBUG_UART_TX_PIN                                     DL_GPIO_PIN_8
-#define GPIO_DEBUG_UART_IOMUX_RX                                 (IOMUX_PINCM20)
-#define GPIO_DEBUG_UART_IOMUX_TX                                 (IOMUX_PINCM19)
-#define GPIO_DEBUG_UART_IOMUX_RX_FUNC                  IOMUX_PINCM20_PF_UART1_RX
-#define GPIO_DEBUG_UART_IOMUX_TX_FUNC                  IOMUX_PINCM19_PF_UART1_TX
+#define GPIO_DEBUG_UART_RX_PIN                                    DL_GPIO_PIN_11
+#define GPIO_DEBUG_UART_TX_PIN                                    DL_GPIO_PIN_10
+#define GPIO_DEBUG_UART_IOMUX_RX                                 (IOMUX_PINCM22)
+#define GPIO_DEBUG_UART_IOMUX_TX                                 (IOMUX_PINCM21)
+#define GPIO_DEBUG_UART_IOMUX_RX_FUNC                  IOMUX_PINCM22_PF_UART0_RX
+#define GPIO_DEBUG_UART_IOMUX_TX_FUNC                  IOMUX_PINCM21_PF_UART0_TX
 #define DEBUG_UART_BAUD_RATE                                            (230400)
 #define DEBUG_UART_IBRD_40_MHZ_230400_BAUD                                  (10)
 #define DEBUG_UART_FBRD_40_MHZ_230400_BAUD                                  (54)
@@ -181,7 +181,7 @@ bool SYSCFG_DL_SYSCTL_SYSPLL_init(void);
 
 /* Defines for DEBUG_UART_TX_DMA */
 #define DEBUG_UART_TX_DMA_CHAN_ID                                            (3)
-#define DEBUG_UART_INST_DMA_TRIGGER                          (DMA_UART1_TX_TRIG)
+#define DEBUG_UART_INST_DMA_TRIGGER                          (DMA_UART0_TX_TRIG)
 
 
 /* Port definition for Pin Group GPIO_LEDS */

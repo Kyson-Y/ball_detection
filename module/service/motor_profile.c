@@ -6,7 +6,7 @@
 #include "motor_profile_config.h"
 
 #define MOTOR_PROFILE_MG370_VERSION 13U
-#define MOTOR_PROFILE_513X_VERSION  1U
+#define MOTOR_PROFILE_513X_VERSION  5U
 
 #if ECHO_MOTOR_PROFILE_SELECTION == ECHO_MOTOR_PROFILE_MG370
 
@@ -60,31 +60,65 @@ static const motor_profile_t s_active_profile = {
 
 #elif ECHO_MOTOR_PROFILE_SELECTION == ECHO_MOTOR_PROFILE_513X
 
-#error "ECHO 513X profile is locked: confirm rated voltage, stall current, gear ratio, encoder interface, signal level, and PPR before selecting ECHO_MOTOR_PROFILE_513X"
-
 static const motor_profile_t s_active_profile = {
     MOTOR_PROFILE_SCHEMA_VERSION,
     MOTOR_PROFILE_ID_513X,
     MOTOR_PROFILE_513X_VERSION,
     0U,
-    "513X",
+    "MG513X",
+    MOTOR_PROFILE_VALID_RATED_VOLTAGE |
+        MOTOR_PROFILE_VALID_RATED_CURRENT |
+        MOTOR_PROFILE_VALID_STALL_CURRENT |
+        MOTOR_PROFILE_VALID_GEAR_RATIO |
+        MOTOR_PROFILE_VALID_ENCODER_INTERFACE |
+        MOTOR_PROFILE_VALID_ENCODER_LEVEL |
+        MOTOR_PROFILE_VALID_ENCODER_PPR |
+        MOTOR_PROFILE_VALID_MAXIMUM_RPM |
+        MOTOR_PROFILE_VALID_LEFT_CPR |
+        MOTOR_PROFILE_VALID_RIGHT_CPR |
+        MOTOR_PROFILE_VALID_START_PWM |
+        MOTOR_PROFILE_VALID_MAXIMUM_PWM |
+        MOTOR_PROFILE_VALID_SPEED_LIMIT |
+        MOTOR_PROFILE_VALID_ACCELERATION_LIMIT |
+        MOTOR_PROFILE_VALID_SPEED_PID |
+        MOTOR_PROFILE_VALID_MOTOR_OUTPUT_SIGNS,
+    MOTOR_PROFILE_FLAG_CPR_PROVISIONAL |
+        MOTOR_PROFILE_FLAG_ACTUATOR_TEST_READY |
+        MOTOR_PROFILE_FLAG_CLOSED_LOOP_READY,
+    12000U,
+    360U,
+    3200U,
+    28.0f,
+    500U,
+    3300U,
+    370U,
+    600U,
+    650U,
+    100.0f,
+    150.0f,
     0U,
-    MOTOR_PROFILE_FLAG_PLACEHOLDER,
-    0U, 0U, 0U, 0.0f, 0U, 0U, 0U,
-    0U, 0U, 0.0f, 0.0f, 0U, 0U,
-    MOTOR_ENCODER_INTERFACE_UNKNOWN,
-    { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-      0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-      0.0f, 0.0f, 0.0f, 0U, 0U, 0U, 0.0f },
+    0U,
+    MOTOR_ENCODER_INTERFACE_GMR_AB,
+    { 3.0f, 8.0f, 0.0f, 90.0f, 4.0f, 3.0f, 6000.0f, 650.0f,
+      545.0f, 535.0f, 1.45f, 1.62f, 0.30f,
+      150.0f, 3000.0f, 3000.0f, 600U, 100U, 500U, 20.0f },
     {
-        { 0, 0, 0U, 0U, 0U },
-        { 0, 0, 0U, 0U, 0U }
+        { 1, 1, 4U, 0U, 56000U },
+        { -1, -1, 1U, 0U, 14000U }
     }
 };
 
+#elif ECHO_MOTOR_PROFILE_SELECTION == ECHO_MOTOR_PROFILE_513A
+
+#error "ECHO 513A profile is locked until its electrical, encoder, direction, startup, and PID parameters are measured."
+
+#elif ECHO_MOTOR_PROFILE_SELECTION == ECHO_MOTOR_PROFILE_513B
+
+#error "ECHO 513B profile is locked until its electrical, encoder, direction, startup, and PID parameters are measured."
+
 #else
 
-#error "Unsupported ECHO_MOTOR_PROFILE_SELECTION. Use ECHO_MOTOR_PROFILE_MG370 or ECHO_MOTOR_PROFILE_513X."
+#error "Unsupported ECHO_MOTOR_PROFILE_SELECTION. Use MG370, 513X, 513A, or 513B."
 
 #endif
 
@@ -112,6 +146,28 @@ static bool MotorProfile_MotorSignsAreValid(void)
             left->motor_output_sign == -1) &&
         (right->motor_output_sign == 1 ||
          right->motor_output_sign == -1);
+}
+
+static bool MotorProfile_ActuatorTestFieldsAreValid(void)
+{
+    const uint32_t required_fields =
+        MOTOR_PROFILE_VALID_RATED_VOLTAGE |
+        MOTOR_PROFILE_VALID_RATED_CURRENT |
+        MOTOR_PROFILE_VALID_STALL_CURRENT |
+        MOTOR_PROFILE_VALID_GEAR_RATIO |
+        MOTOR_PROFILE_VALID_MAXIMUM_RPM |
+        MOTOR_PROFILE_VALID_MAXIMUM_PWM;
+
+    return (s_active_profile.valid_fields & required_fields) ==
+            required_fields &&
+        s_active_profile.rated_voltage_mv != 0U &&
+        s_active_profile.rated_current_ma != 0U &&
+        s_active_profile.stall_current_ma != 0U &&
+        s_active_profile.gear_ratio > 0.0f &&
+        s_active_profile.maximum_output_rpm != 0U &&
+        s_active_profile.maximum_pwm_permille != 0U &&
+        s_active_profile.maximum_pwm_permille <= 1000U &&
+        MotorProfile_MotorSignsAreValid();
 }
 
 static bool MotorProfile_ClosedLoopFieldsAreValid(void)
@@ -183,7 +239,7 @@ void MotorProfile_Init(void)
         right->encoder_decode_multiplier;
     g_motor_profile_diag.selection_valid = selection_valid ? 1U : 0U;
     g_motor_profile_diag.actuator_test_ready =
-        (selection_valid &&
+        (MotorProfile_ActuatorTestFieldsAreValid() &&
          (s_active_profile.status_flags &
           MOTOR_PROFILE_FLAG_ACTUATOR_TEST_READY) != 0U) ? 1U : 0U;
     g_motor_profile_diag.closed_loop_ready =
@@ -241,7 +297,7 @@ bool MotorProfile_NormalizeMotorPermille(motor_wheel_t wheel,
     uint16_t magnitude;
 
     if (electrical_permille == NULL || wheel_profile == NULL ||
-        !MotorProfile_ClosedLoopReady() ||
+        !MotorProfile_ActuatorTestReady() ||
         normalized_permille < -1000 || normalized_permille > 1000 ||
         (wheel_profile->motor_output_sign != 1 &&
          wheel_profile->motor_output_sign != -1)) {

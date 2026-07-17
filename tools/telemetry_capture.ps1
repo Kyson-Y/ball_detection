@@ -26,7 +26,9 @@ $ParameterAckFrameType = 3
 $HealthFrameType = 4
 $ActuatorAckFrameType = 6
 $MotorProfileFrameType = 7
-$ControlPayloadLength = 40
+$LegacyControlPayloadLength = 40
+$DualOutputControlPayloadLength = 44
+$ControlPayloadLength = 96
 $ParameterAckPayloadLength = 16
 $LegacyHealthPayloadLength = 112
 $HealthPayloadLength = 116
@@ -175,7 +177,12 @@ if (-not [string]::IsNullOrWhiteSpace($CsvPath)) {
     )
     $csvWriter.WriteLine(
         "sequence,timestamp_us,setpoint,measurement,control_output," +
-        "auxiliary,loop_count,period_us,execution_us,jitter_us," +
+        "auxiliary,right_auxiliary,right_setpoint," +
+        "left_pid_proportional,left_pid_integrator,left_pid_derivative," +
+        "left_pid_feedforward,right_pid_proportional,right_pid_integrator," +
+        "right_pid_derivative,right_pid_feedforward,active_kp,active_ki," +
+        "active_kd,parameter_apply_sequence," +
+        "loop_count,period_us,execution_us,jitter_us," +
         "deadline_miss_count,flags"
     )
 }
@@ -277,7 +284,9 @@ try {
         $payloadOffset = $offset + 14
 
         if (($frameType -eq $ControlFrameType) -and
-            ($payloadLength -eq $ControlPayloadLength)) {
+            (($payloadLength -eq $ControlPayloadLength) -or
+             ($payloadLength -eq $DualOutputControlPayloadLength) -or
+             ($payloadLength -eq $LegacyControlPayloadLength))) {
             $controlFrames++
             if ($null -eq $firstControlTimestamp) {
                 $firstControlTimestamp = $timestampUs
@@ -293,6 +302,49 @@ try {
             $jitterUs = [BitConverter]::ToUInt32($data, $payloadOffset + 28)
             $deadlineMissCount = [BitConverter]::ToUInt32($data, $payloadOffset + 32)
             $flags = [BitConverter]::ToUInt32($data, $payloadOffset + 36)
+            $rightAuxiliary = if ($payloadLength -ge
+                $DualOutputControlPayloadLength) {
+                [BitConverter]::ToSingle($data, $payloadOffset + 40)
+            } else { 0.0 }
+            $rightSetpoint = if ($payloadLength -eq $ControlPayloadLength) {
+                [BitConverter]::ToSingle($data, $payloadOffset + 44)
+            } else { $setpoint }
+            $leftPidProportional = if ($payloadLength -eq $ControlPayloadLength) {
+                [BitConverter]::ToSingle($data, $payloadOffset + 48)
+            } else { 0.0 }
+            $leftPidIntegrator = if ($payloadLength -eq $ControlPayloadLength) {
+                [BitConverter]::ToSingle($data, $payloadOffset + 52)
+            } else { 0.0 }
+            $leftPidDerivative = if ($payloadLength -eq $ControlPayloadLength) {
+                [BitConverter]::ToSingle($data, $payloadOffset + 56)
+            } else { 0.0 }
+            $leftPidFeedforward = if ($payloadLength -eq $ControlPayloadLength) {
+                [BitConverter]::ToSingle($data, $payloadOffset + 60)
+            } else { 0.0 }
+            $rightPidProportional = if ($payloadLength -eq $ControlPayloadLength) {
+                [BitConverter]::ToSingle($data, $payloadOffset + 64)
+            } else { 0.0 }
+            $rightPidIntegrator = if ($payloadLength -eq $ControlPayloadLength) {
+                [BitConverter]::ToSingle($data, $payloadOffset + 68)
+            } else { 0.0 }
+            $rightPidDerivative = if ($payloadLength -eq $ControlPayloadLength) {
+                [BitConverter]::ToSingle($data, $payloadOffset + 72)
+            } else { 0.0 }
+            $rightPidFeedforward = if ($payloadLength -eq $ControlPayloadLength) {
+                [BitConverter]::ToSingle($data, $payloadOffset + 76)
+            } else { 0.0 }
+            $activeKp = if ($payloadLength -eq $ControlPayloadLength) {
+                [BitConverter]::ToSingle($data, $payloadOffset + 80)
+            } else { 0.0 }
+            $activeKi = if ($payloadLength -eq $ControlPayloadLength) {
+                [BitConverter]::ToSingle($data, $payloadOffset + 84)
+            } else { 0.0 }
+            $activeKd = if ($payloadLength -eq $ControlPayloadLength) {
+                [BitConverter]::ToSingle($data, $payloadOffset + 88)
+            } else { 0.0 }
+            $parameterApplySequence = if ($payloadLength -eq $ControlPayloadLength) {
+                [BitConverter]::ToUInt32($data, $payloadOffset + 92)
+            } else { 0 }
 
             if (($periodUs -ne 0) -and ($periodUs -lt $minimumPeriodUs)) {
                 $minimumPeriodUs = $periodUs
@@ -315,6 +367,20 @@ try {
                     $measurement.ToString("R", $culture),
                     $controlOutput.ToString("R", $culture),
                     $auxiliary.ToString("R", $culture),
+                    $rightAuxiliary.ToString("R", $culture),
+                    $rightSetpoint.ToString("R", $culture),
+                    $leftPidProportional.ToString("R", $culture),
+                    $leftPidIntegrator.ToString("R", $culture),
+                    $leftPidDerivative.ToString("R", $culture),
+                    $leftPidFeedforward.ToString("R", $culture),
+                    $rightPidProportional.ToString("R", $culture),
+                    $rightPidIntegrator.ToString("R", $culture),
+                    $rightPidDerivative.ToString("R", $culture),
+                    $rightPidFeedforward.ToString("R", $culture),
+                    $activeKp.ToString("R", $culture),
+                    $activeKi.ToString("R", $culture),
+                    $activeKd.ToString("R", $culture),
+                    $parameterApplySequence,
                     $loopCount,
                     $periodUs,
                     $executionUs,
@@ -414,6 +480,8 @@ try {
             $profileModel = switch ($profileId) {
                 1 { "MG370" }
                 2 { "513X" }
+                3 { "513A" }
+                4 { "513B" }
                 default { "UNKNOWN" }
             }
             $latestMotorProfile = [pscustomobject]@{

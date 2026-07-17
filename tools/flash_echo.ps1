@@ -1,3 +1,10 @@
+[CmdletBinding()]
+param(
+    [string]$AdapterSerial = "",
+    [ValidateRange(100, 5000)]
+    [int]$AdapterSpeedKhz = 1000
+)
+
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "echo_paths.ps1")
 
@@ -18,9 +25,14 @@ function Invoke-EchoOpenOcd {
 
     $arguments = @(
         "-s", $scripts,
-        "-f", "interface/cmsis-dap.cfg",
+        "-f", "interface/cmsis-dap.cfg"
+    )
+    if (-not [string]::IsNullOrWhiteSpace($AdapterSerial)) {
+        $arguments += @("-c", ('adapter serial "{0}"' -f $AdapterSerial))
+    }
+    $arguments += @(
         "-f", "target/ti_mspm0.cfg",
-        "-c", "adapter speed 1000"
+        "-c", "adapter speed $AdapterSpeedKhz"
     )
     foreach ($command in $Commands) {
         $arguments += @("-c", $command)
@@ -33,7 +45,10 @@ $programCommand = 'program "{0}" verify reset exit' -f $hexForTcl
 
 Write-Host "Flashing ECHO through DAPLink..." -ForegroundColor Cyan
 Write-Host "Image: $hex"
-Write-Host "SWD frequency: 1 MHz"
+if (-not [string]::IsNullOrWhiteSpace($AdapterSerial)) {
+    Write-Host "CMSIS-DAP serial: $AdapterSerial"
+}
+Write-Host "SWD frequency: $AdapterSpeedKhz kHz"
 
 Invoke-EchoOpenOcd -Commands @($programCommand)
 $fastVerifyExitCode = $LASTEXITCODE

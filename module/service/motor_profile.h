@@ -36,7 +36,9 @@
 typedef enum {
     MOTOR_PROFILE_ID_NONE = 0U,
     MOTOR_PROFILE_ID_MG370 = 1U,
-    MOTOR_PROFILE_ID_513X = 2U
+    MOTOR_PROFILE_ID_513X = 2U,
+    MOTOR_PROFILE_ID_513A = 3U,
+    MOTOR_PROFILE_ID_513B = 4U
 } motor_profile_id_t;
 
 typedef enum {
@@ -47,7 +49,8 @@ typedef enum {
 
 typedef enum {
     MOTOR_ENCODER_INTERFACE_UNKNOWN = 0U,
-    MOTOR_ENCODER_INTERFACE_GMR_AB = 1U
+    MOTOR_ENCODER_INTERFACE_GMR_AB = 1U,
+    MOTOR_ENCODER_INTERFACE_HALL_AB = 2U
 } motor_encoder_interface_t;
 
 typedef struct {

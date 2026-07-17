@@ -1,20 +1,19 @@
 # Phase 2A: AT8236、底盘电机与 GMR 编码器
 
-状态：进行中。左右编码器无动力板测已通过；AT8236 默认零输出、UART 一次性点动安全层
-已完成 0/0 构建、烧录回读和四方向无动力逻辑 PWM 板测。物理引脚波形、带 VM 单轮点动、
-电机方向、故障测试和连续运行尚未完成。
+状态：MG370 与 MG513X 架空闭环阶段已完成。513X 已完成方向、编码器、起转 PWM、速度闭环、
+阶跃、连续运行和左右轮人工扰动测试；513A 与 513B 保持独立编译锁定占位。
 
 ## 1. 范围与边界
 
 Phase 2A 只包含：
 
 - D153B 双路 AT8236 模块；
-- 370 与后续 513X 可切换的电机配置；
+- MG370、MG513X 以及独立锁定的 513A/513B 编译时电机配置；
 - 左右轮 GMR AB 相编码器；
 - 默认零输出、唯一执行器写入者、命令超时和方向归一化；
 - 单电机架空板测、故障测试和连续运行证据。
 
-本阶段不包含速度 PID、底盘 IMU、航向/位置闭环、云台、视觉或 Mission。
+本阶段包含每轮速度闭环，但不包含底盘 IMU、航向/位置闭环、云台、视觉或 Mission。
 
 ## 2. 已确认硬件事实
 
@@ -23,7 +22,8 @@ Phase 2A 只包含：
 | 开发电机 | MG370，GMR 编码器，12 V，减速比 1:34.014 |
 | 370 转速 | 空载 300+/-12% rpm，额定 260+/-12% rpm |
 | 370 电流 | 空载 0.24 A，额定 1.1 A，堵转 6.2 A |
-| 最终电机 | 513X，尚未到货，完整参数未冻结 |
+| 当前完成电机 | MG513X，12 V、1:28、GMR AB 500 PPR；CPR 仍为 provisional |
+| 后续电机 | 513A、513B 独立占位，参数未冻结且编译锁定 |
 | 驱动模块 | D153B，AT8236 双 H 桥，VREF=3.3 V |
 | 编码器标称 | 500 PPR；手转量级支持减速前编码器轴口径，精确 CPR 仍待标记盘复测 |
 | 编码器电平 | 用户确认并接线为 3.3 V，左轮 PA29/PA30 板测通过 |
@@ -35,11 +35,11 @@ D153B 的 E1A/E1B/E2A/E2B 从电机接口直接引出，没有电平转换。电
 
 ### 2.1 编译时 Motor Profile
 
-MG370 与未来 513X 共用一套 `bsp_motor`、`bsp_encoder`、ChassisActuator、转速换算和后续 PID
+MG370 与 MG513X 共用一套 `bsp_motor`、`bsp_encoder`、ChassisActuator、转速换算和速度 PID
 接口。唯一型号选择入口是 `module/service/motor_profile_config.h` 中的：
 
 ```c
-#define ECHO_MOTOR_PROFILE_SELECTION ECHO_MOTOR_PROFILE_MG370
+#define ECHO_MOTOR_PROFILE_SELECTION ECHO_MOTOR_PROFILE_513X
 ```
 
 不允许 OLED、UART 或任务状态机在运行时切换电机型号。Profile 只保存电机与每轮语义，不包含
@@ -67,8 +67,8 @@ MG370 Profile version 1 当前内容：
 Profile 因此允许现有最高 10%/500 ms 的显式电气安全点动，但 `closed_loop_ready=0`；未来归一化
 电机命令在电机方向、最大 PWM、速度/加速度、堵转判据和 PID 全部冻结前保持锁定。
 
-513X 已建立同结构占位配置。若编译选择 `ECHO_MOTOR_PROFILE_513X`，当前会直接产生明确
-`#error`，要求先确认额定电压、堵转电流、减速比、编码器接口、电平和 PPR。
+513A 与 513B 已建立独立占位配置。选择任一型号都会产生明确 `#error`，直到各自的电气、
+编码器、方向、起转和 PID 参数完成实测；两者不得继承 513X 参数。
 
 诊断全局 `g_motor_profile_diag` 报告型号名、schema/profile version、有效字段、状态标志、左右
 CPR/符号/倍频和 100 Hz 输出轴 RPM。Telemetry frame type 7 每秒报告当前 Profile 型号和版本。
@@ -224,7 +224,7 @@ MSPM0G3507 只有 TIMG8 原生支持 QEI。当前采用：
 | FreeRTOS full rebuild | 0 Error / 0 Warning |
 | App full rebuild | 0 Error / 0 Warning；Code=58,152，ZI=16,644 |
 | HEX SHA-256 | `45D3035850AC9460232A75051FA1958F7F907187400E1C048274D1920F73CBC0` |
-| 513X 选择 | ArmClang 预期失败；错误明确列出 6 项未确认关键参数 |
+| 513A 选择 | 待重新验证预期失败；错误应明确列出 6 项未确认关键参数 |
 | Profile 遥测 fixture | type 7 CRC/解析通过；MG370 v1、68,028/17,007、`+1/-1`、x4/x1 |
 | 烧录/板测 | not run；本次没有烧录新 Profile 固件，也没有驱动电机 |
 
@@ -234,7 +234,7 @@ MSPM0G3507 只有 TIMG8 原生支持 QEI。当前采用：
 2. 用户在场、轮组架空、限流电源和物理断电准备完成后，只接左电机做 5%/200 ms 点动。
 3. 冻结左右 `motor_output_sign`，再逐步验证 10% 短脉冲、非法命令和命令超时。
 4. 完成单轮/双轮连续运行、最大编码器速率、温升和故障测试后，才允许 Phase 2A 验收。
-5. 速度/里程闭环前用多圈平均冻结 370 输出轴 CPR；513X 到货后使用独立 profile。
+5. 513A、513B 使用独立 profile；先冻结接口、电平、每圈计数和方向，再解除执行器锁。
 
 ## 11. 双轮速度控制结果（2026-07-16）
 
@@ -300,3 +300,18 @@ CRC/gap/deadline/active/sticky/I2C 全 0，输出保持禁用。
 ### 11.5 阶段结论
 
 Phase 2A 的架空直流电机与编码器子阶段完成。左右轮共用同一套 v13 速度控制器，分别保留独立前馈、方向和 CPR；双轮阶跃、同步、连续运行、低速蠕行及单左轮抗扰均已验收。右轮单独手压、电流、温升、落地负载、实际补偿、直线同步和带载上限不在本阶段继续展开，统一 deferred 到后续整车负载阶段。
+
+## 12. MG513X 结果（2026-07-17）
+
+- Profile ID 2、version 5；513A/513B 分别保留 ID 3/4 并保持编译锁定。
+- 额定 12 V、额定电流 0.36 A、堵转电流 3.2 A、减速比 1:28、GMR AB 500 PPR、3.3 V。
+- provisional 输出轴 CPR：左 x4 `56000`，右 x1 `14000`；前进电机符号左 `+1`、右 `-1`。
+- 双轮可靠共同起转为 600 permille，输出上限 650 permille；速度上限 100 rpm。
+- 默认速度控制参数 `Kp=3`、`Ki=8`、`Kd=0`，复位后由活动 Motor Profile 恢复。
+- 5、10、30、正反 60、70 rpm 闭环均通过；70 rpm / 30 s 为 `70.014/70.012 rpm`，
+  3000/3000 帧且 CRC、gap、deadline、encoder-late、Health 全部干净。
+- 左轮 60 rpm 人工扰动最低 `18.853 rpm`，230 ms 回到目标 +/-3%，超调 5.01%；右轮最低
+  `27.857 rpm`，150 ms 恢复，超调 5.71%。未受扰动轮均保持约 60 rpm。
+- v5 增加显式持续速度命令和 96 B 追加式 Control telemetry；40 B/44 B 主机解析保持兼容。
+- 最终 HEX SHA-256：`B2287E3E460F7955D24B4E6BA04C3DF6BDFD31DDAED89D8A461E9B8C9E783CE8`。
+- 100 rpm 是当前命令上限，不代表已完成 100 rpm 动态验收；v5 最终板测为 0/0 rpm 静态输出归零。

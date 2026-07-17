@@ -17,8 +17,8 @@
 #define TELEMETRY_FRAME_TYPE_ACTUATOR_COMMAND 5U
 #define TELEMETRY_FRAME_TYPE_ACTUATOR_ACK 6U
 #define TELEMETRY_FRAME_TYPE_MOTOR_PROFILE 7U
-#define TELEMETRY_CONTROL_PAYLOAD_BYTES   40U
-#define TELEMETRY_CONTROL_FRAME_BYTES     56U
+#define TELEMETRY_CONTROL_PAYLOAD_BYTES   96U
+#define TELEMETRY_CONTROL_FRAME_BYTES     112U
 #define TELEMETRY_PARAMETER_ACK_PAYLOAD_BYTES 16U
 #define TELEMETRY_PARAMETER_ACK_FRAME_BYTES   32U
 #define TELEMETRY_ACTUATOR_ACK_PAYLOAD_BYTES 16U
@@ -39,15 +39,28 @@
 #define TELEMETRY_CONTROL_FLAG_SPEED_BOOST       (1UL << 6)
 #define TELEMETRY_CONTROL_FLAG_SPEED_TRACKING    (1UL << 7)
 
-/* Actuator/encoder diagnostic mapping: setpoint=active electrical permille,
- * measurement=left x4 delta,
- * control_output=right x1 delta, auxiliary=right x4-equivalent delta. */
+/* The first 44 bytes retain the legacy speed mapping. New fields are
+ * append-only so 40-byte and 44-byte host decoders remain usable. */
 
 typedef struct {
     float setpoint;
     float measurement;
     float control_output;
     float auxiliary;
+    float right_auxiliary;
+    float right_setpoint;
+    float left_pid_proportional;
+    float left_pid_integrator;
+    float left_pid_derivative;
+    float left_pid_feedforward;
+    float right_pid_proportional;
+    float right_pid_integrator;
+    float right_pid_derivative;
+    float right_pid_feedforward;
+    float active_kp;
+    float active_ki;
+    float active_kd;
+    uint32_t parameter_apply_sequence;
     uint32_t loop_count;
     uint32_t period_us;
     uint32_t execution_us;

@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "FreeRTOS.h"
+#include "motor_profile.h"
 #include "telemetry.h"
 #include "task.h"
 
@@ -16,7 +17,7 @@ typedef struct {
     bool restore_defaults;
 } pending_parameter_t;
 
-static const parameter_metadata_t s_parameter_metadata[PARAMETER_COUNT] = {
+static parameter_metadata_t s_parameter_metadata[PARAMETER_COUNT] = {
     { PARAMETER_ID_KP, "KP", PARAMETER_TYPE_FLOAT32,
       8.0f, 0.0f, 1000.0f, 0.1f, "",
       PARAMETER_FLAG_FIELD_EDITABLE | PARAMETER_FLAG_PERSISTENT,
@@ -174,6 +175,9 @@ void ParameterService_HandleUartSet(uint32_t transaction_id,
 
 void ParameterService_Init(void)
 {
+    const motor_speed_pid_config_t *speed_profile =
+        MotorProfile_GetSpeedPidConfig();
+
     memset((void *) &g_parameter_service_diag, 0,
         sizeof(g_parameter_service_diag));
     s_last_transaction_valid = false;
@@ -189,6 +193,11 @@ void ParameterService_Init(void)
     s_last_ack.reserved = 0U;
     s_last_ack.applied_value = 0.0f;
     s_last_ack.apply_sequence = 0U;
+    if (MotorProfile_ClosedLoopReady()) {
+        s_parameter_metadata[0].default_value = speed_profile->kp;
+        s_parameter_metadata[1].default_value = speed_profile->ki;
+        s_parameter_metadata[2].default_value = speed_profile->kd;
+    }
     g_control_tuning_params.kp = s_parameter_metadata[0].default_value;
     g_control_tuning_params.ki = s_parameter_metadata[1].default_value;
     g_control_tuning_params.kd = s_parameter_metadata[2].default_value;
