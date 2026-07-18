@@ -28,7 +28,8 @@ typedef enum {
     TELEMETRY_MESSAGE_HEALTH = 3U,
     TELEMETRY_MESSAGE_ACTUATOR_ACK = 4U,
     TELEMETRY_MESSAGE_MOTOR_PROFILE = 5U,
-    TELEMETRY_MESSAGE_REFLECTANCE = 6U
+    TELEMETRY_MESSAGE_REFLECTANCE = 6U,
+    TELEMETRY_MESSAGE_SUPPLY_VOLTAGE = 7U
 } telemetry_message_kind_t;
 
 typedef struct {
@@ -108,6 +109,7 @@ typedef struct {
         telemetry_actuator_ack_t actuator_ack;
         telemetry_motor_profile_sample_t motor_profile;
         bsp_reflectance_sample_t reflectance;
+        bsp_supply_voltage_sample_t supply_voltage;
         telemetry_health_sample_t health;
     } data;
 } telemetry_message_t;
@@ -387,6 +389,28 @@ static uint16_t Telemetry_EncodeReflectance(
     return Telemetry_EndFrame(frame, payload_length);
 }
 
+static uint16_t Telemetry_EncodeSupplyVoltage(
+    const telemetry_message_t *message, uint8_t *frame)
+{
+    const bsp_supply_voltage_sample_t *sample =
+        &message->data.supply_voltage;
+    uint8_t *payload = &frame[FRAME_OFFSET_PAYLOAD];
+    uint16_t payload_length = TELEMETRY_SUPPLY_VOLTAGE_PAYLOAD_BYTES;
+
+    (void) Telemetry_BeginFrame(frame,
+        TELEMETRY_FRAME_TYPE_SUPPLY_VOLTAGE, payload_length,
+        message->sequence, message->timestamp_us);
+    Telemetry_PutU32(&payload[0], sample->sample_sequence);
+    Telemetry_PutU16(&payload[4], sample->raw);
+    Telemetry_PutU16(&payload[6], sample->filtered_raw);
+    Telemetry_PutU16(&payload[8], sample->adc_input_mv);
+    Telemetry_PutU16(&payload[10], sample->reserved);
+    Telemetry_PutU32(&payload[12], sample->battery_mv);
+    Telemetry_PutU32(&payload[16], sample->sample_count);
+    Telemetry_PutU32(&payload[20], sample->conversion_timeout_count);
+    return Telemetry_EndFrame(frame, payload_length);
+}
+
 static void Telemetry_Task(void *context)
 {
     telemetry_message_t message;
@@ -425,10 +449,14 @@ static void Telemetry_Task(void *context)
             frame_length = Telemetry_EncodeMotorProfile(&message, frame);
             g_telemetry_diag.last_frame_type =
                 TELEMETRY_FRAME_TYPE_MOTOR_PROFILE;
-        } else {
+        } else if (message.kind == TELEMETRY_MESSAGE_REFLECTANCE) {
             frame_length = Telemetry_EncodeReflectance(&message, frame);
             g_telemetry_diag.last_frame_type =
                 TELEMETRY_FRAME_TYPE_REFLECTANCE;
+        } else {
+            frame_length = Telemetry_EncodeSupplyVoltage(&message, frame);
+            g_telemetry_diag.last_frame_type =
+                TELEMETRY_FRAME_TYPE_SUPPLY_VOLTAGE;
         }
 
         crc_offset = (uint16_t) (frame_length - 2U);
@@ -630,6 +658,29 @@ bool Telemetry_PublishReflectance(
         g_telemetry_diag.reflectance_accepted_count++;
     } else {
         g_telemetry_diag.reflectance_dropped_count++;
+    }
+    return accepted;
+}
+
+bool Telemetry_PublishSupplyVoltage(
+    const bsp_supply_voltage_sample_t *sample)
+{
+    telemetry_message_t message;
+    bool accepted;
+
+    g_telemetry_diag.supply_voltage_attempt_count++;
+    if ((sample == NULL) || (s_queue == NULL)) {
+        g_telemetry_diag.supply_voltage_dropped_count++;
+        return false;
+    }
+
+    message.kind = TELEMETRY_MESSAGE_SUPPLY_VOLTAGE;
+    message.data.supply_voltage = *sample;
+    accepted = Telemetry_EnqueueMessage(&message);
+    if (accepted) {
+        g_telemetry_diag.supply_voltage_accepted_count++;
+    } else {
+        g_telemetry_diag.supply_voltage_dropped_count++;
     }
     return accepted;
 }

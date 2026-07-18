@@ -3,6 +3,7 @@
 #include "bsp_encoder.h"
 #include "bsp_reflectance.h"
 #include "bsp_reset.h"
+#include "bsp_supply_voltage.h"
 #include "bsp_time.h"
 #include "chassis_actuator.h"
 #include "command_service.h"
@@ -25,6 +26,7 @@ int main(void)
     BSP_Time_Init();
     BSP_Encoder_Init();
     BSP_Reflectance_Init();
+    BSP_SupplyVoltage_Init();
     SerialTx_Init();
     SerialRx_Init();
     ParameterService_Init();

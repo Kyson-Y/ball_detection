@@ -59,6 +59,7 @@ SYSCONFIG_WEAK void SYSCFG_DL_init(void)
     SYSCFG_DL_OLED_I2C_init();
     SYSCFG_DL_DEBUG_UART_init();
     SYSCFG_DL_REFLECTANCE_ADC_init();
+    SYSCFG_DL_SUPPLY_ADC_init();
     SYSCFG_DL_DMA_init();
     SYSCFG_DL_SYSCTL_CLK_init();
     /* Ensure backup structures have no valid state */
@@ -103,6 +104,7 @@ SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
     DL_I2C_reset(OLED_I2C_INST);
     DL_UART_Main_reset(DEBUG_UART_INST);
     DL_ADC12_reset(REFLECTANCE_ADC_INST);
+    DL_ADC12_reset(SUPPLY_ADC_INST);
 
 
     DL_GPIO_enablePower(GPIOA);
@@ -113,6 +115,7 @@ SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
     DL_I2C_enablePower(OLED_I2C_INST);
     DL_UART_Main_enablePower(DEBUG_UART_INST);
     DL_ADC12_enablePower(REFLECTANCE_ADC_INST);
+    DL_ADC12_enablePower(SUPPLY_ADC_INST);
 
     delay_cycles(POWER_STARTUP_DELAY);
 }
@@ -522,6 +525,22 @@ SYSCONFIG_WEAK void SYSCFG_DL_REFLECTANCE_ADC_init(void)
     DL_ADC12_setPowerDownMode(REFLECTANCE_ADC_INST,DL_ADC12_POWER_DOWN_MODE_MANUAL);
     DL_ADC12_setSampleTime0(REFLECTANCE_ADC_INST,20);
     DL_ADC12_enableConversions(REFLECTANCE_ADC_INST);
+}
+/* SUPPLY_ADC Initialization */
+static const DL_ADC12_ClockConfig gSUPPLY_ADCClockConfig = {
+    .clockSel       = DL_ADC12_CLOCK_ULPCLK,
+    .divideRatio    = DL_ADC12_CLOCK_DIVIDE_8,
+    .freqRange      = DL_ADC12_CLOCK_FREQ_RANGE_32_TO_40,
+};
+SYSCONFIG_WEAK void SYSCFG_DL_SUPPLY_ADC_init(void)
+{
+    DL_ADC12_setClockConfig(SUPPLY_ADC_INST, (DL_ADC12_ClockConfig *) &gSUPPLY_ADCClockConfig);
+    DL_ADC12_configConversionMem(SUPPLY_ADC_INST, SUPPLY_ADC_ADCMEM_0,
+        DL_ADC12_INPUT_CHAN_4, DL_ADC12_REFERENCE_VOLTAGE_VDDA, DL_ADC12_SAMPLE_TIMER_SOURCE_SCOMP0, DL_ADC12_AVERAGING_MODE_DISABLED,
+        DL_ADC12_BURN_OUT_SOURCE_DISABLED, DL_ADC12_TRIGGER_MODE_AUTO_NEXT, DL_ADC12_WINDOWS_COMP_MODE_DISABLED);
+    DL_ADC12_setPowerDownMode(SUPPLY_ADC_INST,DL_ADC12_POWER_DOWN_MODE_MANUAL);
+    DL_ADC12_setSampleTime0(SUPPLY_ADC_INST,200);
+    DL_ADC12_enableConversions(SUPPLY_ADC_INST);
 }
 
 static const DL_DMA_Config gDEBUG_UART_TX_DMAConfig = {

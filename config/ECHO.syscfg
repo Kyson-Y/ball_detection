@@ -9,6 +9,7 @@
 const ProjectConfig = scripting.addModule("/ti/project_config/ProjectConfig");
 const ADC12  = scripting.addModule("/ti/driverlib/ADC12", {}, false);
 const ADC1   = ADC12.addInstance();
+const ADC2   = ADC12.addInstance();
 const GPIO   = scripting.addModule("/ti/driverlib/GPIO", {}, false);
 const GPIO1  = GPIO.addInstance();
 const GPIO2  = GPIO.addInstance();
@@ -81,6 +82,15 @@ ADC1.sampleTime0                = "4 us";
 ADC1.powerDownMode              = "DL_ADC12_POWER_DOWN_MODE_MANUAL";
 ADC1.peripheral.$assign         = "ADC0";
 ADC1.peripheral.adcPin1.$assign = "PA26";
+
+ADC2.$name                      = "SUPPLY_ADC";
+ADC2.sampClkSrc                 = "DL_ADC12_CLOCK_ULPCLK";
+ADC2.sampClkDiv                 = "DL_ADC12_CLOCK_DIVIDE_8";
+ADC2.adcMem0chansel             = "DL_ADC12_INPUT_CHAN_4";
+ADC2.sampleTime0                = "40 us";
+ADC2.powerDownMode              = "DL_ADC12_POWER_DOWN_MODE_MANUAL";
+ADC2.peripheral.$assign         = "ADC1";
+ADC2.peripheral.adcPin4.$assign = "PB17";
 
 PWM1.$name                          = "CHASSIS_PWM";
 PWM1.clockSource                    = "MFCLK";

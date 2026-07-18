@@ -27,6 +27,7 @@ $HealthFrameType = 4
 $ActuatorAckFrameType = 6
 $MotorProfileFrameType = 7
 $ReflectanceFrameType = 8
+$SupplyVoltageFrameType = 9
 $LegacyControlPayloadLength = 40
 $DualOutputControlPayloadLength = 44
 $ControlPayloadLength = 96
@@ -36,6 +37,7 @@ $HealthPayloadLength = 116
 $ActuatorAckPayloadLength = 16
 $MotorProfilePayloadLength = 36
 $ReflectancePayloadLength = 36
+$SupplyVoltagePayloadLength = 24
 $MinimumFrameLength = 16
 $MaximumPayloadLength = 128
 [uint64]$U32HalfRange = 2147483648
@@ -198,6 +200,7 @@ $parameterAckFrames = 0
 $actuatorAckFrames = 0
 $motorProfileFrames = 0
 $reflectanceFrames = 0
+$supplyVoltageFrames = 0
 $unknownFrames = 0
 $crcErrors = 0
 [uint64]$sequenceGaps = 0
@@ -219,6 +222,16 @@ $firstReflectanceTimestamp = $null
 $lastReflectanceTimestamp = $null
 $firstReflectanceScanSequence = $null
 $lastReflectanceScanSequence = $null
+$firstSupplyVoltageTimestamp = $null
+$lastSupplyVoltageTimestamp = $null
+$firstSupplySampleSequence = $null
+$lastSupplySampleSequence = $null
+$supplyRawMinimum = [uint16]::MaxValue
+$supplyRawMaximum = 0
+[uint64]$supplyRawSum = 0
+$supplyBatteryMinimumMv = [uint32]::MaxValue
+$supplyBatteryMaximumMv = 0
+[uint64]$supplyBatterySumMv = 0
 $minimumPeriodUs = [uint32]::MaxValue
 $maximumPeriodUs = 0
 $maximumExecutionUs = 0
@@ -228,6 +241,7 @@ $latestHealth = $null
 $latestActuatorAck = $null
 $latestMotorProfile = $null
 $latestReflectance = $null
+$latestSupplyVoltage = $null
 
 try {
     while (($offset + $MinimumFrameLength) -le $data.Length) {
@@ -490,6 +504,7 @@ try {
                 2 { "513X" }
                 3 { "513A" }
                 4 { "513B" }
+                5 { "513X-4S" }
                 default { "UNKNOWN" }
             }
             $latestMotorProfile = [pscustomobject]@{
@@ -551,6 +566,49 @@ try {
                     $data, $payloadOffset + 32)
             }
         }
+        elseif (($frameType -eq $SupplyVoltageFrameType) -and
+            ($payloadLength -eq $SupplyVoltagePayloadLength)) {
+            $supplyVoltageFrames++
+            $supplySampleSequence = [BitConverter]::ToUInt32(
+                $data, $payloadOffset)
+            $supplyRaw = [BitConverter]::ToUInt16(
+                $data, $payloadOffset + 4)
+            $supplyBatteryMv = [BitConverter]::ToUInt32(
+                $data, $payloadOffset + 12)
+            if ($null -eq $firstSupplyVoltageTimestamp) {
+                $firstSupplyVoltageTimestamp = $timestampUs
+                $firstSupplySampleSequence = $supplySampleSequence
+            }
+            $lastSupplyVoltageTimestamp = $timestampUs
+            $lastSupplySampleSequence = $supplySampleSequence
+            if ($supplyRaw -lt $supplyRawMinimum) {
+                $supplyRawMinimum = $supplyRaw
+            }
+            if ($supplyRaw -gt $supplyRawMaximum) {
+                $supplyRawMaximum = $supplyRaw
+            }
+            if ($supplyBatteryMv -lt $supplyBatteryMinimumMv) {
+                $supplyBatteryMinimumMv = $supplyBatteryMv
+            }
+            if ($supplyBatteryMv -gt $supplyBatteryMaximumMv) {
+                $supplyBatteryMaximumMv = $supplyBatteryMv
+            }
+            $supplyRawSum += $supplyRaw
+            $supplyBatterySumMv += $supplyBatteryMv
+            $latestSupplyVoltage = [pscustomobject]@{
+                SampleSequence = $supplySampleSequence
+                Raw = $supplyRaw
+                FilteredRaw = [BitConverter]::ToUInt16(
+                    $data, $payloadOffset + 6)
+                AdcInputMv = [BitConverter]::ToUInt16(
+                    $data, $payloadOffset + 8)
+                BatteryMv = $supplyBatteryMv
+                SampleCount = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 16)
+                ConversionTimeoutCount = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 20)
+            }
+        }
         else {
             $unknownFrames++
         }
@@ -596,6 +654,33 @@ $summary = [pscustomobject]@{
             (Get-U32Delta -Current $lastReflectanceTimestamp `
                 -Previous $firstReflectanceTimestamp), 3)
     } else { 0.0 }
+    SupplyVoltageFrames = $supplyVoltageFrames
+    SupplyVoltageRateHz = Get-RateHz -Count $supplyVoltageFrames `
+        -FirstTimestamp $firstSupplyVoltageTimestamp `
+        -LastTimestamp $lastSupplyVoltageTimestamp
+    SupplyVoltageSampleRateHz = if (($supplyVoltageFrames -gt 1) -and
+        ($lastSupplyVoltageTimestamp -ne $firstSupplyVoltageTimestamp)) {
+        [Math]::Round(
+            (Get-U32Delta -Current $lastSupplySampleSequence `
+                -Previous $firstSupplySampleSequence) * 1000000.0 /
+            (Get-U32Delta -Current $lastSupplyVoltageTimestamp `
+                -Previous $firstSupplyVoltageTimestamp), 3)
+    } else { 0.0 }
+    SupplyRawMinimum = if ($supplyVoltageFrames -gt 0) {
+        $supplyRawMinimum
+    } else { 0 }
+    SupplyRawMaximum = $supplyRawMaximum
+    SupplyRawAverage = if ($supplyVoltageFrames -gt 0) {
+        [Math]::Round($supplyRawSum / [double]$supplyVoltageFrames, 3)
+    } else { 0.0 }
+    SupplyBatteryMinimumMv = if ($supplyVoltageFrames -gt 0) {
+        $supplyBatteryMinimumMv
+    } else { 0 }
+    SupplyBatteryMaximumMv = $supplyBatteryMaximumMv
+    SupplyBatteryAverageMv = if ($supplyVoltageFrames -gt 0) {
+        [Math]::Round(
+            $supplyBatterySumMv / [double]$supplyVoltageFrames, 1)
+    } else { 0.0 }
     UnknownFrames = $unknownFrames
     CrcErrors = $crcErrors
     SequenceGaps = $sequenceGaps
@@ -616,6 +701,7 @@ $summary = [pscustomobject]@{
     LatestActuatorAck = $latestActuatorAck
     LatestMotorProfile = $latestMotorProfile
     LatestReflectance = $latestReflectance
+    LatestSupplyVoltage = $latestSupplyVoltage
     CsvPath = $CsvPath
     JsonPath = $JsonPath
 }

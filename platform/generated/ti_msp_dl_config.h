@@ -191,6 +191,18 @@ bool SYSCFG_DL_SYSCTL_SYSPLL_init(void);
 #define GPIO_REFLECTANCE_ADC_IOMUX_C1                            (IOMUX_PINCM59)
 #define GPIO_REFLECTANCE_ADC_IOMUX_C1_FUNC        (IOMUX_PINCM59_PF_UNCONNECTED)
 
+/* Defines for SUPPLY_ADC */
+#define SUPPLY_ADC_INST                                                     ADC1
+#define SUPPLY_ADC_INST_IRQHandler                               ADC1_IRQHandler
+#define SUPPLY_ADC_INST_INT_IRQN                                 (ADC1_INT_IRQn)
+#define SUPPLY_ADC_ADCMEM_0                                   DL_ADC12_MEM_IDX_0
+#define SUPPLY_ADC_ADCMEM_0_REF                  DL_ADC12_REFERENCE_VOLTAGE_VDDA
+#define SUPPLY_ADC_ADCMEM_0_REF_VOLTAGE_V                                     3.3
+#define GPIO_SUPPLY_ADC_C4_PORT                                            GPIOB
+#define GPIO_SUPPLY_ADC_C4_PIN                                    DL_GPIO_PIN_17
+#define GPIO_SUPPLY_ADC_IOMUX_C4                                 (IOMUX_PINCM43)
+#define GPIO_SUPPLY_ADC_IOMUX_C4_FUNC             (IOMUX_PINCM43_PF_UNCONNECTED)
+
 
 
 /* Defines for DEBUG_UART_TX_DMA */
@@ -246,6 +258,7 @@ void SYSCFG_DL_TIMEBASE_init(void);
 void SYSCFG_DL_OLED_I2C_init(void);
 void SYSCFG_DL_DEBUG_UART_init(void);
 void SYSCFG_DL_REFLECTANCE_ADC_init(void);
+void SYSCFG_DL_SUPPLY_ADC_init(void);
 void SYSCFG_DL_DMA_init(void);
 
 

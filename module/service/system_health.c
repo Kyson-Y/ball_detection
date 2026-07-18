@@ -155,6 +155,7 @@ static uint32_t SystemHealth_TelemetryDropCount(void)
 {
     return g_telemetry_diag.publish_dropped_count +
         g_telemetry_diag.ack_dropped_count +
+        g_telemetry_diag.supply_voltage_dropped_count +
         g_telemetry_diag.health_dropped_count +
         g_telemetry_diag.transport_dropped_count;
 }
