@@ -28,6 +28,7 @@ param(
     [switch]$ConfirmBothMotorsConnected,
     [switch]$ReverseRight,
     [switch]$ConfirmCurrentLimitedSupply,
+    [switch]$ConfirmBatteryPowered,
     [switch]$ConfirmPhysicalDisconnectReady
 )
 
@@ -49,9 +50,10 @@ if ($Mode -eq "LogicOnly") {
 else {
     if (-not $ConfirmUserPresent -or
         -not $ConfirmWheelSuspended -or
-        -not $ConfirmCurrentLimitedSupply -or
+        (-not $ConfirmCurrentLimitedSupply -and
+         -not $ConfirmBatteryPowered) -or
         -not $ConfirmPhysicalDisconnectReady) {
-        throw "MotorPowered requires every physical safety confirmation."
+        throw "MotorPowered requires every physical safety confirmation and an explicit power-source confirmation."
     }
     if ($Motor -eq "Both") {
         if (-not $ConfirmBothMotorsConnected) {

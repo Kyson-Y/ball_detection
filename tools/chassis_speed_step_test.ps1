@@ -16,6 +16,7 @@ param(
     [switch]$ConfirmWheelSuspended,
     [switch]$ConfirmBothMotorsConnected,
     [switch]$ConfirmCurrentLimitedSupply,
+    [switch]$ConfirmBatteryPowered,
     [switch]$ConfirmPhysicalDisconnectReady
 )
 
@@ -25,9 +26,10 @@ $ErrorActionPreference = "Stop"
 if (-not $ConfirmUserPresent -or
     -not $ConfirmWheelSuspended -or
     -not $ConfirmBothMotorsConnected -or
-    -not $ConfirmCurrentLimitedSupply -or
+    (-not $ConfirmCurrentLimitedSupply -and
+     -not $ConfirmBatteryPowered) -or
     -not $ConfirmPhysicalDisconnectReady) {
-    throw "Speed step tests require every physical safety confirmation."
+    throw "Speed step tests require every physical safety confirmation and an explicit power-source confirmation."
 }
 if ([Math]::Abs($InitialRpm) -lt 0.1 -or
     [Math]::Abs($FinalRpm) -lt 0.1 -or

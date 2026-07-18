@@ -7,6 +7,7 @@
 
 #define MOTOR_PROFILE_MG370_VERSION 13U
 #define MOTOR_PROFILE_513X_VERSION  5U
+#define MOTOR_PROFILE_513X_4S_VERSION 3U
 
 #if ECHO_MOTOR_PROFILE_SELECTION == ECHO_MOTOR_PROFILE_MG370
 
@@ -108,6 +109,57 @@ static const motor_profile_t s_active_profile = {
     }
 };
 
+#elif ECHO_MOTOR_PROFILE_SELECTION == ECHO_MOTOR_PROFILE_513X_4S
+
+/* Preserve the 12 V motor rating while scaling drive terms for a 4S bus. */
+static const motor_profile_t s_active_profile = {
+    MOTOR_PROFILE_SCHEMA_VERSION,
+    MOTOR_PROFILE_ID_513X_4S,
+    MOTOR_PROFILE_513X_4S_VERSION,
+    0U,
+    "MG513X-4S",
+    MOTOR_PROFILE_VALID_RATED_VOLTAGE |
+        MOTOR_PROFILE_VALID_RATED_CURRENT |
+        MOTOR_PROFILE_VALID_STALL_CURRENT |
+        MOTOR_PROFILE_VALID_GEAR_RATIO |
+        MOTOR_PROFILE_VALID_ENCODER_INTERFACE |
+        MOTOR_PROFILE_VALID_ENCODER_LEVEL |
+        MOTOR_PROFILE_VALID_ENCODER_PPR |
+        MOTOR_PROFILE_VALID_MAXIMUM_RPM |
+        MOTOR_PROFILE_VALID_LEFT_CPR |
+        MOTOR_PROFILE_VALID_RIGHT_CPR |
+        MOTOR_PROFILE_VALID_START_PWM |
+        MOTOR_PROFILE_VALID_MAXIMUM_PWM |
+        MOTOR_PROFILE_VALID_SPEED_LIMIT |
+        MOTOR_PROFILE_VALID_ACCELERATION_LIMIT |
+        MOTOR_PROFILE_VALID_SPEED_PID |
+        MOTOR_PROFILE_VALID_MOTOR_OUTPUT_SIGNS,
+    MOTOR_PROFILE_FLAG_CPR_PROVISIONAL |
+        MOTOR_PROFILE_FLAG_ACTUATOR_TEST_READY |
+        MOTOR_PROFILE_FLAG_CLOSED_LOOP_READY,
+    12000U,
+    360U,
+    3200U,
+    28.0f,
+    500U,
+    3300U,
+    370U,
+    600U,
+    650U,
+    100.0f,
+    150.0f,
+    0U,
+    0U,
+    MOTOR_ENCODER_INTERFACE_GMR_AB,
+    { 3.0f, 8.0f, 0.0f, 90.0f, 4.0f, 3.0f, 6000.0f, 650.0f,
+      409.0f, 401.0f, 1.09f, 1.62f, 0.30f,
+      150.0f, 3000.0f, 3000.0f, 600U, 100U, 500U, 20.0f },
+    {
+        { 1, 1, 4U, 0U, 56000U },
+        { -1, -1, 1U, 0U, 14000U }
+    }
+};
+
 #elif ECHO_MOTOR_PROFILE_SELECTION == ECHO_MOTOR_PROFILE_513A
 
 #error "ECHO 513A profile is locked until its electrical, encoder, direction, startup, and PID parameters are measured."
@@ -118,7 +170,7 @@ static const motor_profile_t s_active_profile = {
 
 #else
 
-#error "Unsupported ECHO_MOTOR_PROFILE_SELECTION. Use MG370, 513X, 513A, or 513B."
+#error "Unsupported ECHO_MOTOR_PROFILE_SELECTION. Use MG370, 513X, 513X_4S, 513A, or 513B."
 
 #endif
 

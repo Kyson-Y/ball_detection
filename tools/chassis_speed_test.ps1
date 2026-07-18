@@ -17,6 +17,7 @@ param(
     [switch]$ConfirmWheelSuspended,
     [switch]$ConfirmBothMotorsConnected,
     [switch]$ConfirmCurrentLimitedSupply,
+    [switch]$ConfirmBatteryPowered,
     [switch]$ConfirmPhysicalDisconnectReady
 )
 
@@ -29,9 +30,10 @@ if ([Math]::Abs($TargetRpm) -lt 0.1) {
 if (-not $ConfirmUserPresent -or
     -not $ConfirmWheelSuspended -or
     -not $ConfirmBothMotorsConnected -or
-    -not $ConfirmCurrentLimitedSupply -or
+    (-not $ConfirmCurrentLimitedSupply -and
+     -not $ConfirmBatteryPowered) -or
     -not $ConfirmPhysicalDisconnectReady) {
-    throw "Speed tests require every physical safety confirmation."
+    throw "Speed tests require every physical safety confirmation and an explicit power-source confirmation."
 }
 if ($Sequence -eq 0) {
     $Sequence = [uint32](Get-Random -Minimum 1 -Maximum 2147483647)

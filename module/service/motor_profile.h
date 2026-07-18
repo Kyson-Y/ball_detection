@@ -38,7 +38,8 @@ typedef enum {
     MOTOR_PROFILE_ID_MG370 = 1U,
     MOTOR_PROFILE_ID_513X = 2U,
     MOTOR_PROFILE_ID_513A = 3U,
-    MOTOR_PROFILE_ID_513B = 4U
+    MOTOR_PROFILE_ID_513B = 4U,
+    MOTOR_PROFILE_ID_513X_4S = 5U
 } motor_profile_id_t;
 
 typedef enum {

@@ -5,10 +5,11 @@
 #define ECHO_MOTOR_PROFILE_513X  2U
 #define ECHO_MOTOR_PROFILE_513A  3U
 #define ECHO_MOTOR_PROFILE_513B  4U
+#define ECHO_MOTOR_PROFILE_513X_4S 5U
 
 /* Override this single macro from the compiler command line if required. */
 #ifndef ECHO_MOTOR_PROFILE_SELECTION
-#define ECHO_MOTOR_PROFILE_SELECTION ECHO_MOTOR_PROFILE_513X
+#define ECHO_MOTOR_PROFILE_SELECTION ECHO_MOTOR_PROFILE_513X_4S
 #endif
 
 #endif
