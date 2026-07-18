@@ -179,6 +179,20 @@ bool SYSCFG_DL_SYSCTL_SYSPLL_init(void);
 
 
 
+/* Defines for REFLECTANCE_ADC */
+#define REFLECTANCE_ADC_INST                                                ADC0
+#define REFLECTANCE_ADC_INST_IRQHandler                          ADC0_IRQHandler
+#define REFLECTANCE_ADC_INST_INT_IRQN                            (ADC0_INT_IRQn)
+#define REFLECTANCE_ADC_ADCMEM_0                              DL_ADC12_MEM_IDX_0
+#define REFLECTANCE_ADC_ADCMEM_0_REF             DL_ADC12_REFERENCE_VOLTAGE_VDDA
+#define REFLECTANCE_ADC_ADCMEM_0_REF_VOLTAGE_V                                     3.3
+#define GPIO_REFLECTANCE_ADC_C1_PORT                                       GPIOA
+#define GPIO_REFLECTANCE_ADC_C1_PIN                               DL_GPIO_PIN_26
+#define GPIO_REFLECTANCE_ADC_IOMUX_C1                            (IOMUX_PINCM59)
+#define GPIO_REFLECTANCE_ADC_IOMUX_C1_FUNC        (IOMUX_PINCM59_PF_UNCONNECTED)
+
+
+
 /* Defines for DEBUG_UART_TX_DMA */
 #define DEBUG_UART_TX_DMA_CHAN_ID                                            (3)
 #define DEBUG_UART_INST_DMA_TRIGGER                          (DMA_UART0_TX_TRIG)
@@ -203,6 +217,18 @@ bool SYSCFG_DL_SYSCTL_SYSPLL_init(void);
 /* Defines for RIGHT_ENCODER_E2B: GPIOB.7 with pinCMx 24 on package pin 59 */
 #define GPIO_RIGHT_ENCODER_RIGHT_ENCODER_E2B_PIN                 (DL_GPIO_PIN_7)
 #define GPIO_RIGHT_ENCODER_RIGHT_ENCODER_E2B_IOMUX               (IOMUX_PINCM24)
+/* Port definition for Pin Group GPIO_REFLECTANCE_MUX */
+#define GPIO_REFLECTANCE_MUX_PORT                                        (GPIOA)
+
+/* Defines for REFLECTANCE_AD0: GPIOA.27 with pinCMx 60 on package pin 31 */
+#define GPIO_REFLECTANCE_MUX_REFLECTANCE_AD0_PIN                (DL_GPIO_PIN_27)
+#define GPIO_REFLECTANCE_MUX_REFLECTANCE_AD0_IOMUX               (IOMUX_PINCM60)
+/* Defines for REFLECTANCE_AD1: GPIOA.24 with pinCMx 54 on package pin 25 */
+#define GPIO_REFLECTANCE_MUX_REFLECTANCE_AD1_PIN                (DL_GPIO_PIN_24)
+#define GPIO_REFLECTANCE_MUX_REFLECTANCE_AD1_IOMUX               (IOMUX_PINCM54)
+/* Defines for REFLECTANCE_AD2: GPIOA.25 with pinCMx 55 on package pin 26 */
+#define GPIO_REFLECTANCE_MUX_REFLECTANCE_AD2_PIN                (DL_GPIO_PIN_25)
+#define GPIO_REFLECTANCE_MUX_REFLECTANCE_AD2_IOMUX               (IOMUX_PINCM55)
 
 
 /* clang-format on */
@@ -219,6 +245,7 @@ void SYSCFG_DL_LEFT_ENCODER_QEI_init(void);
 void SYSCFG_DL_TIMEBASE_init(void);
 void SYSCFG_DL_OLED_I2C_init(void);
 void SYSCFG_DL_DEBUG_UART_init(void);
+void SYSCFG_DL_REFLECTANCE_ADC_init(void);
 void SYSCFG_DL_DMA_init(void);
 
 

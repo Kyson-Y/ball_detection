@@ -7,9 +7,12 @@
 // @cliArgs --board /ti/boards/LP_MSPM0G3507 --rtos freertos
 
 const ProjectConfig = scripting.addModule("/ti/project_config/ProjectConfig");
+const ADC12  = scripting.addModule("/ti/driverlib/ADC12", {}, false);
+const ADC1   = ADC12.addInstance();
 const GPIO   = scripting.addModule("/ti/driverlib/GPIO", {}, false);
 const GPIO1  = GPIO.addInstance();
 const GPIO2  = GPIO.addInstance();
+const GPIO3  = GPIO.addInstance();
 const I2C    = scripting.addModule("/ti/driverlib/I2C", {}, false);
 const I2C1   = I2C.addInstance();
 const PWM    = scripting.addModule("/ti/driverlib/PWM", {}, false);
@@ -60,6 +63,24 @@ GPIO2.associatedPins[0].pin.$assign = "PB6";
 GPIO2.associatedPins[1].$name       = "RIGHT_ENCODER_E2B";
 GPIO2.associatedPins[1].direction   = "INPUT";
 GPIO2.associatedPins[1].pin.$assign = "PB7";
+
+GPIO3.$name                         = "GPIO_REFLECTANCE_MUX";
+GPIO3.associatedPins.create(3);
+GPIO3.associatedPins[0].$name       = "REFLECTANCE_AD0";
+GPIO3.associatedPins[0].pin.$assign = "PA27";
+GPIO3.associatedPins[1].$name       = "REFLECTANCE_AD1";
+GPIO3.associatedPins[1].pin.$assign = "PA24";
+GPIO3.associatedPins[2].$name       = "REFLECTANCE_AD2";
+GPIO3.associatedPins[2].pin.$assign = "PA25";
+
+ADC1.$name                      = "REFLECTANCE_ADC";
+ADC1.sampClkSrc                 = "DL_ADC12_CLOCK_ULPCLK";
+ADC1.sampClkDiv                 = "DL_ADC12_CLOCK_DIVIDE_8";
+ADC1.adcMem0chansel             = "DL_ADC12_INPUT_CHAN_1";
+ADC1.sampleTime0                = "4 us";
+ADC1.powerDownMode              = "DL_ADC12_POWER_DOWN_MODE_MANUAL";
+ADC1.peripheral.$assign         = "ADC0";
+ADC1.peripheral.adcPin1.$assign = "PA26";
 
 PWM1.$name                          = "CHASSIS_PWM";
 PWM1.clockSource                    = "MFCLK";

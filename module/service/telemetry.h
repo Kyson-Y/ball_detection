@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "FreeRTOS.h"
+#include "bsp_reflectance.h"
 #include "motor_profile.h"
 #include "system_health.h"
 #include "task.h"
@@ -17,6 +18,7 @@
 #define TELEMETRY_FRAME_TYPE_ACTUATOR_COMMAND 5U
 #define TELEMETRY_FRAME_TYPE_ACTUATOR_ACK 6U
 #define TELEMETRY_FRAME_TYPE_MOTOR_PROFILE 7U
+#define TELEMETRY_FRAME_TYPE_REFLECTANCE  8U
 #define TELEMETRY_CONTROL_PAYLOAD_BYTES   96U
 #define TELEMETRY_CONTROL_FRAME_BYTES     112U
 #define TELEMETRY_PARAMETER_ACK_PAYLOAD_BYTES 16U
@@ -25,6 +27,8 @@
 #define TELEMETRY_ACTUATOR_ACK_FRAME_BYTES   32U
 #define TELEMETRY_MOTOR_PROFILE_PAYLOAD_BYTES 36U
 #define TELEMETRY_MOTOR_PROFILE_FRAME_BYTES   52U
+#define TELEMETRY_REFLECTANCE_PAYLOAD_BYTES   36U
+#define TELEMETRY_REFLECTANCE_FRAME_BYTES     52U
 #define TELEMETRY_HEALTH_PAYLOAD_BYTES    116U
 #define TELEMETRY_HEALTH_FRAME_BYTES      132U
 #define TELEMETRY_MAX_FRAME_BYTES         TELEMETRY_HEALTH_FRAME_BYTES
@@ -101,6 +105,9 @@ typedef struct {
     uint32_t motor_profile_attempt_count;
     uint32_t motor_profile_accepted_count;
     uint32_t motor_profile_dropped_count;
+    uint32_t reflectance_attempt_count;
+    uint32_t reflectance_accepted_count;
+    uint32_t reflectance_dropped_count;
     uint32_t health_attempt_count;
     uint32_t health_accepted_count;
     uint32_t health_dropped_count;
@@ -133,6 +140,8 @@ bool Telemetry_PublishParameterAck(
     const telemetry_parameter_ack_t *ack);
 bool Telemetry_PublishActuatorAck(const telemetry_actuator_ack_t *ack);
 bool Telemetry_PublishMotorProfile(const motor_profile_t *profile);
+bool Telemetry_PublishReflectance(
+    const bsp_reflectance_sample_t *sample);
 bool Telemetry_PublishHealth(const system_health_snapshot_t *snapshot);
 
 #endif

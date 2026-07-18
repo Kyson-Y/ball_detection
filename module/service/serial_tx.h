@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define SERIAL_TX_RING_CAPACITY_BYTES 1024U
+#define SERIAL_TX_RING_CAPACITY_BYTES 2048U
 #define SERIAL_TX_MAX_WRITE_BYTES     160U
 
 typedef struct {

@@ -506,6 +506,11 @@
               <FileType>1</FileType>
               <FilePath>..\bsp\source\bsp_i2c.c</FilePath>
             </File>
+            <File>
+              <FileName>bsp_reflectance.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bsp\source\bsp_reflectance.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

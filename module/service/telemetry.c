@@ -27,7 +27,8 @@ typedef enum {
     TELEMETRY_MESSAGE_PARAMETER_ACK = 2U,
     TELEMETRY_MESSAGE_HEALTH = 3U,
     TELEMETRY_MESSAGE_ACTUATOR_ACK = 4U,
-    TELEMETRY_MESSAGE_MOTOR_PROFILE = 5U
+    TELEMETRY_MESSAGE_MOTOR_PROFILE = 5U,
+    TELEMETRY_MESSAGE_REFLECTANCE = 6U
 } telemetry_message_kind_t;
 
 typedef struct {
@@ -106,6 +107,7 @@ typedef struct {
         telemetry_parameter_ack_t parameter_ack;
         telemetry_actuator_ack_t actuator_ack;
         telemetry_motor_profile_sample_t motor_profile;
+        bsp_reflectance_sample_t reflectance;
         telemetry_health_sample_t health;
     } data;
 } telemetry_message_t;
@@ -359,6 +361,32 @@ static uint16_t Telemetry_EncodeHealth(
     return Telemetry_EndFrame(frame, payload_length);
 }
 
+static uint16_t Telemetry_EncodeReflectance(
+    const telemetry_message_t *message, uint8_t *frame)
+{
+    const bsp_reflectance_sample_t *sample =
+        &message->data.reflectance;
+    uint8_t *payload = &frame[FRAME_OFFSET_PAYLOAD];
+    uint8_t channel;
+    uint16_t payload_length = TELEMETRY_REFLECTANCE_PAYLOAD_BYTES;
+
+    (void) Telemetry_BeginFrame(frame,
+        TELEMETRY_FRAME_TYPE_REFLECTANCE, payload_length,
+        message->sequence, message->timestamp_us);
+    Telemetry_PutU32(&payload[0], sample->scan_sequence);
+    for (channel = 0U; channel < BSP_REFLECTANCE_CHANNEL_COUNT;
+         channel++) {
+        Telemetry_PutU16(&payload[4U + (uint16_t) channel * 2U],
+            sample->raw[channel]);
+    }
+    Telemetry_PutU16(&payload[20], sample->minimum_raw);
+    Telemetry_PutU16(&payload[22], sample->maximum_raw);
+    Telemetry_PutU32(&payload[24], sample->conversion_timeout_count);
+    Telemetry_PutU32(&payload[28], sample->incomplete_scan_count);
+    Telemetry_PutU32(&payload[32], sample->sample_count);
+    return Telemetry_EndFrame(frame, payload_length);
+}
+
 static void Telemetry_Task(void *context)
 {
     telemetry_message_t message;
@@ -393,10 +421,14 @@ static void Telemetry_Task(void *context)
             frame_length = Telemetry_EncodeActuatorAck(&message, frame);
             g_telemetry_diag.last_frame_type =
                 TELEMETRY_FRAME_TYPE_ACTUATOR_ACK;
-        } else {
+        } else if (message.kind == TELEMETRY_MESSAGE_MOTOR_PROFILE) {
             frame_length = Telemetry_EncodeMotorProfile(&message, frame);
             g_telemetry_diag.last_frame_type =
                 TELEMETRY_FRAME_TYPE_MOTOR_PROFILE;
+        } else {
+            frame_length = Telemetry_EncodeReflectance(&message, frame);
+            g_telemetry_diag.last_frame_type =
+                TELEMETRY_FRAME_TYPE_REFLECTANCE;
         }
 
         crc_offset = (uint16_t) (frame_length - 2U);
@@ -575,6 +607,29 @@ bool Telemetry_PublishMotorProfile(const motor_profile_t *profile)
         g_telemetry_diag.motor_profile_accepted_count++;
     } else {
         g_telemetry_diag.motor_profile_dropped_count++;
+    }
+    return accepted;
+}
+
+bool Telemetry_PublishReflectance(
+    const bsp_reflectance_sample_t *sample)
+{
+    telemetry_message_t message;
+    bool accepted;
+
+    g_telemetry_diag.reflectance_attempt_count++;
+    if ((sample == NULL) || (s_queue == NULL)) {
+        g_telemetry_diag.reflectance_dropped_count++;
+        return false;
+    }
+
+    message.kind = TELEMETRY_MESSAGE_REFLECTANCE;
+    message.data.reflectance = *sample;
+    accepted = Telemetry_EnqueueMessage(&message);
+    if (accepted) {
+        g_telemetry_diag.reflectance_accepted_count++;
+    } else {
+        g_telemetry_diag.reflectance_dropped_count++;
     }
     return accepted;
 }

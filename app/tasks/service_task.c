@@ -4,6 +4,7 @@
 
 #include "FreeRTOS.h"
 #include "bsp_led.h"
+#include "bsp_reflectance.h"
 #include "command_service.h"
 #include "motor_profile.h"
 #include "queue.h"
@@ -14,10 +15,12 @@
 #include "task.h"
 #include "telemetry.h"
 
-#define SERVICE_TASK_PERIOD pdMS_TO_TICKS(2U)
+#define SERVICE_TASK_PERIOD pdMS_TO_TICKS(1U)
 #define SERVICE_HEARTBEAT_TIMEOUT pdMS_TO_TICKS(1500U)
 #define SERVICE_HEALTH_REFRESH_PERIOD pdMS_TO_TICKS(100U)
 #define SERVICE_HEALTH_TELEMETRY_PERIOD pdMS_TO_TICKS(1000U)
+#define SERVICE_REFLECTANCE_SCAN_DIVIDER 1U
+#define SERVICE_REFLECTANCE_TELEMETRY_DECIMATION 125U
 
 void ServiceTask_Entry(void *context)
 {
@@ -27,11 +30,13 @@ void ServiceTask_Entry(void *context)
     TickType_t last_health_refresh_time = last_wake_time;
     TickType_t last_health_telemetry_time = last_wake_time;
     uint32_t heartbeat_sequence = 0U;
+    uint8_t reflectance_scan_divider = 0U;
 
     configASSERT(heartbeat_queue != NULL);
 
     for (;;) {
         TickType_t now;
+        bsp_reflectance_sample_t reflectance_sample;
 
         (void) xTaskDelayUntil(&last_wake_time, SERVICE_TASK_PERIOD);
         now = xTaskGetTickCount();
@@ -40,6 +45,16 @@ void ServiceTask_Entry(void *context)
 
         CommandService_ProcessRx();
         SerialTx_Service();
+        reflectance_scan_divider++;
+        if (reflectance_scan_divider >=
+            SERVICE_REFLECTANCE_SCAN_DIVIDER) {
+            reflectance_scan_divider = 0U;
+            if (BSP_Reflectance_Service(&reflectance_sample) &&
+                (reflectance_sample.scan_sequence %
+                    SERVICE_REFLECTANCE_TELEMETRY_DECIMATION) == 0U) {
+                (void) Telemetry_PublishReflectance(&reflectance_sample);
+            }
+        }
 
         if (xQueueReceive(
                 heartbeat_queue, &heartbeat_sequence, 0U) == pdPASS) {

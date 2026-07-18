@@ -26,6 +26,7 @@ $ParameterAckFrameType = 3
 $HealthFrameType = 4
 $ActuatorAckFrameType = 6
 $MotorProfileFrameType = 7
+$ReflectanceFrameType = 8
 $LegacyControlPayloadLength = 40
 $DualOutputControlPayloadLength = 44
 $ControlPayloadLength = 96
@@ -34,6 +35,7 @@ $LegacyHealthPayloadLength = 112
 $HealthPayloadLength = 116
 $ActuatorAckPayloadLength = 16
 $MotorProfilePayloadLength = 36
+$ReflectancePayloadLength = 36
 $MinimumFrameLength = 16
 $MaximumPayloadLength = 128
 [uint64]$U32HalfRange = 2147483648
@@ -195,6 +197,7 @@ $healthFrames = 0
 $parameterAckFrames = 0
 $actuatorAckFrames = 0
 $motorProfileFrames = 0
+$reflectanceFrames = 0
 $unknownFrames = 0
 $crcErrors = 0
 [uint64]$sequenceGaps = 0
@@ -212,6 +215,10 @@ $firstHealthTimestamp = $null
 $lastHealthTimestamp = $null
 $firstMotorProfileTimestamp = $null
 $lastMotorProfileTimestamp = $null
+$firstReflectanceTimestamp = $null
+$lastReflectanceTimestamp = $null
+$firstReflectanceScanSequence = $null
+$lastReflectanceScanSequence = $null
 $minimumPeriodUs = [uint32]::MaxValue
 $maximumPeriodUs = 0
 $maximumExecutionUs = 0
@@ -220,6 +227,7 @@ $deadlineMissCount = 0
 $latestHealth = $null
 $latestActuatorAck = $null
 $latestMotorProfile = $null
+$latestReflectance = $null
 
 try {
     while (($offset + $MinimumFrameLength) -le $data.Length) {
@@ -513,6 +521,36 @@ try {
                 OutputLocked = $data[$payloadOffset + 35]
             }
         }
+        elseif (($frameType -eq $ReflectanceFrameType) -and
+            ($payloadLength -eq $ReflectancePayloadLength)) {
+            $reflectanceFrames++
+            $reflectanceScanSequence = [BitConverter]::ToUInt32(
+                $data, $payloadOffset)
+            if ($null -eq $firstReflectanceTimestamp) {
+                $firstReflectanceTimestamp = $timestampUs
+                $firstReflectanceScanSequence = $reflectanceScanSequence
+            }
+            $lastReflectanceTimestamp = $timestampUs
+            $lastReflectanceScanSequence = $reflectanceScanSequence
+            $rawValues = for ($channel = 0; $channel -lt 8; $channel++) {
+                [BitConverter]::ToUInt16(
+                    $data, $payloadOffset + 4 + ($channel * 2))
+            }
+            $latestReflectance = [pscustomobject]@{
+                ScanSequence = $reflectanceScanSequence
+                Raw = @($rawValues)
+                MinimumRaw = [BitConverter]::ToUInt16(
+                    $data, $payloadOffset + 20)
+                MaximumRaw = [BitConverter]::ToUInt16(
+                    $data, $payloadOffset + 22)
+                ConversionTimeoutCount = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 24)
+                IncompleteScanCount = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 28)
+                SampleCount = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 32)
+            }
+        }
         else {
             $unknownFrames++
         }
@@ -546,6 +584,18 @@ $summary = [pscustomobject]@{
     MotorProfileRateHz = Get-RateHz -Count $motorProfileFrames `
         -FirstTimestamp $firstMotorProfileTimestamp `
         -LastTimestamp $lastMotorProfileTimestamp
+    ReflectanceFrames = $reflectanceFrames
+    ReflectanceRateHz = Get-RateHz -Count $reflectanceFrames `
+        -FirstTimestamp $firstReflectanceTimestamp `
+        -LastTimestamp $lastReflectanceTimestamp
+    ReflectanceScanRateHz = if (($reflectanceFrames -gt 1) -and
+        ($lastReflectanceTimestamp -ne $firstReflectanceTimestamp)) {
+        [Math]::Round(
+            (Get-U32Delta -Current $lastReflectanceScanSequence `
+                -Previous $firstReflectanceScanSequence) * 1000000.0 /
+            (Get-U32Delta -Current $lastReflectanceTimestamp `
+                -Previous $firstReflectanceTimestamp), 3)
+    } else { 0.0 }
     UnknownFrames = $unknownFrames
     CrcErrors = $crcErrors
     SequenceGaps = $sequenceGaps
@@ -565,6 +615,7 @@ $summary = [pscustomobject]@{
     LatestHealth = $latestHealth
     LatestActuatorAck = $latestActuatorAck
     LatestMotorProfile = $latestMotorProfile
+    LatestReflectance = $latestReflectance
     CsvPath = $CsvPath
     JsonPath = $JsonPath
 }

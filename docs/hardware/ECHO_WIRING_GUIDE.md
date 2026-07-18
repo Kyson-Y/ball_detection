@@ -1,12 +1,12 @@
 # ECHO 当前功能接线指南
 
 ```yaml
-document_version: v0.1
+document_version: v0.2
 status: living_draft
-last_updated: 2026-07-15
-code_baseline: 4b1a3db
-active_worktree: C:\Users\Auror\ECHO-phase2a-work
-active_branch: refs/heads/phase-2a-at8236-chassis-encoder
+last_updated: 2026-07-17
+code_baseline: c08fa3d
+active_worktree: C:\Users\Auror\ECHO-513a-work
+active_branch: refs/heads/codex/513a-motor-bringup
 ```
 
 本文是 ECHO 工程的长期接线入口，记录当前固件已有功能、正在开发的硬件接口和后续预留。
@@ -27,8 +27,8 @@ active_branch: refs/heads/phase-2a-at8236-chassis-encoder
 | SWD 时钟 | DAPLink `SWCLK` | `PA20` | SWD 1 MHz 已验证 | 已验收 |
 | 复位 | DAPLink `nRESET` | 主控 `nRESET` | 下载、复位、断点和 Watch 已验证 | 已验收 |
 | 调试共地 | DAPLink `GND` | 主控 `GND` | 必须共地 | 已验收 |
-| 遥测串口发送 | USB-TTL/DAPLink UART `RXD` | `PA8 / UART1_TX` | 230400 baud, 8N1, 无流控 | 已验收 |
-| 参数串口接收 | USB-TTL/DAPLink UART `TXD` | `PA9 / UART1_RX` | 230400 baud, 8N1, 无流控 | 已验收 |
+| 遥测串口发送 | 无线 DAP UART `RXD` | `PA10 / UART0_TX` | 230400 baud, 8N1, 无流控 | 已验收 |
+| 参数串口接收 | 无线 DAP UART `TXD` | `PA11 / UART0_RX` | 230400 baud, 8N1, 无流控 | 已验收 |
 | 串口共地 | 串口适配器 `GND` | 主控 `GND` | 3.3 V TTL 电平 | 已验收 |
 | OLED 供电 | SSD1306 `VCC` | `3.3 V` | 128x64 四针 I2C 模块 | 已验收 |
 | OLED 地 | SSD1306 `GND` | `GND` | 与主控可靠共地 | 已验收 |
@@ -43,6 +43,10 @@ active_branch: refs/heads/phase-2a-at8236-chassis-encoder
 | 左电机控制 2 | D153B `AIN2` | `PB9` | TIMA0_C1, 10 kHz PWM | UART `-5%/200 ms` 无动力逻辑板测通过；物理波形未测 |
 | 右电机控制 1 | D153B `BIN1` | `PB12` | TIMA0_C2, 10 kHz PWM | UART `+5%/200 ms` 无动力逻辑板测通过；物理波形未测 |
 | 右电机控制 2 | D153B `BIN2` | `PB13` | TIMA0_C3, 10 kHz PWM | UART `-5%/200 ms` 无动力逻辑板测通过；物理波形未测 |
+| 灰度模拟输出 | 八路灰度板 `OUT` | `PA26 / ADC0_CH1` | 0-3.3 V，12-bit ADC | 已验收 |
+| 灰度地址 0 | 八路灰度板 `AD0` | `PA27` | 74HC4051 地址 bit 0 | 已验收 |
+| 灰度地址 1 | 八路灰度板 `AD1` | `PA24` | 74HC4051 地址 bit 1 | 已验收 |
+| 灰度地址 2 | 八路灰度板 `AD2` | `PA25` | 74HC4051 地址 bit 2 | 已验收 |
 | 物理五键 | ADC 电阻梯形 | 未冻结 | 当前仅 debugger 虚拟按键 | deferred，不能接物理按键 |
 
 当前固件另有 80 MHz 系统时钟、1 MHz 内部时基、FreeRTOS 任务、健康快照、RAM 参数、
@@ -66,17 +70,17 @@ GND     --------------> GND
 - 禁止把 DAPLink 的 3.3 V 输出并到已经由其他电源供电的 3.3 V 轨。
 - 工程已验证目标识别、下载、校验、复位、断点和 Watch；异常发热的天猛星板继续禁用。
 
-### 2.2 UART1 遥测与参数
+### 2.2 UART0 遥测与参数
 
 ```text
 3.3 V USB-TTL / DAPLink UART       天猛星 MSPM0G3507
-RXD       <----------------------- PA8  (UART1_TX)
-TXD       -----------------------> PA9  (UART1_RX)
+RXD       <----------------------- PA10 (UART0_TX)
+TXD       -----------------------> PA11 (UART0_RX)
 GND       ----------------------- GND
 VCC       不接（主控已由其他电源供电时）
 ```
 
-串口配置固定为 `230400 baud, 8 data bits, no parity, 1 stop bit, no flow control`。PA8/PA9 是
+串口配置固定为 `230400 baud, 8 data bits, no parity, 1 stop bit, no flow control`。PA10/PA11 是
 3.3 V 逻辑，禁止直接接 RS-232 电平或 5 V TTL 输出。COM 号由系统枚举，不能把 COM4/COM8
 当成永久接线事实。网页遥测、采集脚本和串口助手不能同时独占同一个 COM 口。
 
@@ -100,6 +104,26 @@ OLED 显示 Overview、RTOS、COMM、DEVICE、PARAM 五页。当前切页和参�
 
 板载 LED 已连接到 `PB22`，不需要外接 LED。ServiceTask 收到 SystemTask 心跳后翻转该引脚；
 它是运行指示，不是独立的执行器安全灯。
+
+### 2.5 感为无 MCU 八路灰度板
+
+```text
+灰度板                         天猛星 MSPM0G3507
+GND      --------------------> GND
++5V      --------------------> 干净稳定的 5 V
+OUT      --------------------> PA26 / ADC0_CH1
+AD0      --------------------> PA27
+AD1      --------------------> PA24
+AD2      --------------------> PA25
+EN       悬空（板载 10 kohm 下拉，默认使能）
+ERR      悬空
+```
+
+- 用户实测 `OUT` 始终不超过 3.3 V 后才连接 PA26；5 V 电源与主控共地，不与电机感性负载共用脏电源。
+- 地址 `000..111` 对应 CH1..CH8。最终固件每 1 ms 读取上一个已稳定地址并切到下一地址，完整八路扫描为 125 Hz。
+- UART type 8 payload 报告八路 12-bit 原始值、最小/最大值、ADC timeout、不完整扫描和累计样本数。
+- 原始八路遥测当前每 125 轮发送一次，为 1 Hz。设备端 ADC timeout、incomplete、deadline 和 Health 均为零；有线模式对照确认 AD0/AD1/AD2 高频翻转会耦合进 UART。三根地址线应在主控侧各串 100-330 ohm 电阻，再进行零 CRC 验收。
+- 当前只完成原始值接入，尚未做黑白标定、归一化、滞回阈值或循迹控制。
 
 ## 3. Phase 2A AT8236 与轮组
 
@@ -170,7 +194,7 @@ D153B 的 `VM`、逻辑电源、VREF、使能/待机、GND 和 4S 配电仍未�
 ```text
 PC
  |- DAPLink -> SWDIO PA19 / SWCLK PA20 / nRESET / GND
- |- 3.3 V USB-TTL -> RXD<-PA8 / TXD->PA9 / GND
+ |- 3.3 V USB-TTL -> RXD<-PA10 / TXD->PA11 / GND
  |
 天猛星 MSPM0G3507
  |- 3.3 V / GND / PA0 / PA1 -> SSD1306 OLED
@@ -193,7 +217,6 @@ PC
 | 底盘 ICM42688 | Phase 2B，未实现、未分配接线 |
 | X42S/无刷云台与云台 IMU | Phase 2C，未实现、未分配接线 |
 | 树莓派 4B、相机/MaxiCam | Phase 2D，未实现、未分配接线 |
-| 红外灰度模块 | 型号和引脚尚未冻结 |
 
 ## 6. 通用上电安全检查
 
@@ -221,3 +244,4 @@ PC
 | 版本 | 日期 | 变更 | 证据/来源 |
 | --- | --- | --- | --- |
 | v0.1 | 2026-07-15 | 建立当前功能总接线指南；汇总 SWD、UART、OLED、LED、虚拟按键状态及 Phase 2A AT8236/编码器接线 | Phase 1F 文档、当前 SysConfig/BSP、Phase 2A 草案和用户确认；本次未上电或板测 |
+| v0.2 | 2026-07-17 | UART 迁移到 PA10/PA11；新增八路灰度 PA26/PA27/PA24/PA25 接线和 30 秒板测状态 | SysConfig、BSP、Flash 回读和 COM7 遥测 |

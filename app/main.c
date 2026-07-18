@@ -1,6 +1,7 @@
 #include "FreeRTOS.h"
 #include "app_tasks.h"
 #include "bsp_encoder.h"
+#include "bsp_reflectance.h"
 #include "bsp_reset.h"
 #include "bsp_time.h"
 #include "chassis_actuator.h"
@@ -23,6 +24,7 @@ int main(void)
     ChassisActuator_Init();
     BSP_Time_Init();
     BSP_Encoder_Init();
+    BSP_Reflectance_Init();
     SerialTx_Init();
     SerialRx_Init();
     ParameterService_Init();
