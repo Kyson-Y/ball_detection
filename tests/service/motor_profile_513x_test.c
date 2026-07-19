@@ -27,11 +27,14 @@ int main(void)
     assert(profile->speed_pid.right_feedforward_offset_permille == 535.0f);
 #elif ECHO_MOTOR_PROFILE_SELECTION == ECHO_MOTOR_PROFILE_513X_4S
     assert(profile->profile_id == MOTOR_PROFILE_ID_513X_4S);
-    assert(profile->profile_version == 3U);
+    assert(profile->profile_version == 4U);
     assert(strcmp(profile->model_name, "MG513X-4S") == 0);
     assert(profile->start_pwm_permille == 600U);
     assert(profile->maximum_pwm_permille == 650U);
     assert(profile->speed_pid.output_limit_permille == 650.0f);
+    assert(profile->speed_pid.kp == 4.0f);
+    assert(profile->speed_pid.ki == 10.0f);
+    assert(profile->speed_pid.kd == 0.0f);
     assert(profile->speed_pid.left_feedforward_offset_permille == 409.0f);
     assert(profile->speed_pid.right_feedforward_offset_permille == 401.0f);
     assert(profile->speed_pid.right_feedforward_gain_permille_per_rpm ==

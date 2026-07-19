@@ -7,7 +7,7 @@
 
 #define MOTOR_PROFILE_MG370_VERSION 13U
 #define MOTOR_PROFILE_513X_VERSION  5U
-#define MOTOR_PROFILE_513X_4S_VERSION 3U
+#define MOTOR_PROFILE_513X_4S_VERSION 4U
 
 #if ECHO_MOTOR_PROFILE_SELECTION == ECHO_MOTOR_PROFILE_MG370
 
@@ -151,7 +151,7 @@ static const motor_profile_t s_active_profile = {
     0U,
     0U,
     MOTOR_ENCODER_INTERFACE_GMR_AB,
-    { 3.0f, 8.0f, 0.0f, 90.0f, 4.0f, 3.0f, 6000.0f, 650.0f,
+    { 4.0f, 10.0f, 0.0f, 90.0f, 4.0f, 3.0f, 6000.0f, 650.0f,
       409.0f, 401.0f, 1.09f, 1.62f, 0.30f,
       150.0f, 3000.0f, 3000.0f, 600U, 100U, 500U, 20.0f },
     {
