@@ -3,14 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ECHO Telemetry</title>
+  <title>ECHO PID Console</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header class="toolbar">
-    <div class="brand">ECHO / TELEMETRY</div>
-    <label class="field">&#27874;&#29305;&#29575;
+    <div class="brand">
+      <span>ECHO</span>
+      <strong>PID CONSOLE</strong>
+    </div>
+    <label class="toolbar-field">波特率
       <select id="baudRate">
         <option value="230400" selected>230400</option>
         <option value="460800">460800</option>
@@ -18,67 +21,123 @@
         <option value="921600">921600</option>
       </select>
     </label>
-    <button id="connectButton" class="primary">&#36830;&#25509;</button>
-    <button id="disconnectButton">&#26029;&#24320;</button>
-    <button id="clearButton">&#28165;&#31354;</button>
-    <button id="exportButton">&#23548;&#20986; CSV</button>
-    <span id="connectionStatus" class="status">&#26410;&#36830;&#25509;</span>
+    <div class="toolbar-actions">
+      <button id="connectButton" class="primary">连接串口</button>
+      <button id="simulationButton">启动模拟</button>
+      <button id="disconnectButton">断开</button>
+      <button id="pauseButton">暂停曲线</button>
+      <button id="clearButton">清空</button>
+      <button id="exportButton">导出 CSV</button>
+    </div>
+    <span id="connectionStatus" class="status">未连接</span>
   </header>
 
-  <main class="layout">
-    <section class="panel chart-panel">
-      <div class="panel-heading">
-        <div>
-          <h1>&#23454;&#26102;&#25511;&#21046;&#37327;</h1>
-          <p id="lastSample">&#31561;&#24453;&#25968;&#25454;</p>
+  <main class="workspace">
+    <div class="charts-column">
+      <section class="panel chart-panel">
+        <div class="panel-heading">
+          <div>
+            <h1>左右轮速度</h1>
+            <p id="sampleStatus">等待数据</p>
+          </div>
+          <div id="stats" class="stats"></div>
         </div>
-        <div id="stats" class="stats"></div>
-      </div>
-      <canvas id="chart" aria-label="&#23454;&#26102;&#36965;&#27979;&#26354;&#32447;"></canvas>
-      <div id="channels" class="channels"></div>
-    </section>
+        <canvas id="speedChart" class="chart" aria-label="左右轮目标与实际速度曲线"></canvas>
+        <div id="speedChannels" class="channels" aria-label="速度曲线选择"></div>
+      </section>
 
-    <aside class="side-column">
-      <section class="panel tuning-panel">
+      <section class="panel chart-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>PID 输出分解</h2>
+            <p>左右轮总输出、P、I、D 与前馈，时间轴与速度图同步</p>
+          </div>
+          <span class="unit-badge">permille</span>
+        </div>
+        <canvas id="pidChart" class="chart" aria-label="左右轮 PID 输出曲线"></canvas>
+        <div id="pidChannels" class="channels" aria-label="PID 曲线选择"></div>
+      </section>
+    </div>
+
+    <aside class="control-column">
+      <section class="panel control-panel">
         <div class="panel-heading compact">
-          <h2>&#20020;&#26102;&#21442;&#25968;</h2>
+          <h2>目标速度</h2>
+          <span class="mode-badge">持续</span>
+        </div>
+        <div class="two-fields">
+          <label class="field">左轮 RPM
+            <input id="leftTargetInput" type="number" min="-100" max="100" step="0.1" value="0">
+          </label>
+          <label class="field">右轮 RPM
+            <input id="rightTargetInput" type="number" min="-100" max="100" step="0.1" value="0">
+          </label>
+        </div>
+        <div class="command-row">
+          <button id="sendSpeedButton" class="primary">下发速度</button>
+          <button id="stopButton" class="danger">立即停机</button>
+        </div>
+        <p id="speedStatus" class="hint">范围 ±100 rpm；只有 0/0、故障或复位会停止。</p>
+      </section>
+
+      <section class="panel control-panel">
+        <div class="panel-heading compact">
+          <h2>共享 PID 参数</h2>
           <span class="ram-badge">RAM</span>
         </div>
-        <label class="field">&#21442;&#25968;
-          <select id="parameterName">
-            <option value="kp">Kp</option>
-            <option value="ki">Ki</option>
-            <option value="kd">Kd</option>
-            <option value="target">Target</option>
-          </select>
-        </label>
-        <label class="field">&#25968;&#20540;
-          <input id="parameterValue" type="number" step="any" value="1">
-        </label>
-        <button id="sendButton" class="primary wide">&#21457;&#36865;&#21442;&#25968;</button>
-        <p id="tuningStatus" class="hint">&#20165;&#22312;&#36830;&#25509;&#21518;&#21487;&#21457;&#36865;&#65292;&#19981;&#20889; Flash&#12290;</p>
+        <div class="three-fields">
+          <label class="field">Kp
+            <input id="kpInput" type="number" min="0" max="1000" step="0.01" value="4">
+          </label>
+          <label class="field">Ki
+            <input id="kiInput" type="number" min="0" max="1000" step="0.01" value="10">
+          </label>
+          <label class="field">Kd
+            <input id="kdInput" type="number" min="0" max="1000" step="0.01" value="0">
+          </label>
+        </div>
+        <button id="applyPidButton" class="primary wide">一次应用 Kp / Ki / Kd</button>
+        <p id="pidStatus" class="hint">逐项等待 ACK，在 10 ms 控制边界生效。</p>
+        <p id="activePid" class="active-params">等待新版控制帧</p>
+      </section>
+
+      <section class="panel live-panel">
+        <div class="panel-heading compact">
+          <h2>实时数值</h2>
+          <span class="window-badge">20 s</span>
+        </div>
+        <div class="live-grid">
+          <span></span><b>左轮</b><b>右轮</b>
+          <span>目标 rpm</span><output data-live="leftTarget">--</output><output data-live="rightTarget">--</output>
+          <span>实际 rpm</span><output data-live="leftSpeed">--</output><output data-live="rightSpeed">--</output>
+          <span>总输出</span><output data-live="leftTotal">--</output><output data-live="rightTotal">--</output>
+          <span>P</span><output data-live="leftP">--</output><output data-live="rightP">--</output>
+          <span>I</span><output data-live="leftI">--</output><output data-live="rightI">--</output>
+          <span>D</span><output data-live="leftD">--</output><output data-live="rightD">--</output>
+        </div>
       </section>
 
       <section class="panel diagnostics-panel">
         <div class="panel-heading compact">
-          <h2>&#38142;&#36335;&#35786;&#26029;</h2>
+          <h2>串口诊断</h2>
         </div>
         <dl id="diagnostics">
-          <div><dt>&#23383;&#33410;</dt><dd data-stat="bytes">0</dd></div>
-          <div><dt>&#25511;&#21046;&#24103;</dt><dd data-stat="frames">0</dd></div>
-          <div><dt>ACK</dt><dd data-stat="acks">0</dd></div>
-          <div><dt>CRC &#38169;&#35823;</dt><dd data-stat="crcErrors">0</dd></div>
-          <div><dt>&#24207;&#21495;&#32570;&#21475;</dt><dd data-stat="seqGaps">0</dd></div>
-          <div><dt>&#35299;&#26512;&#28322;&#20986;</dt><dd data-stat="overflow">0</dd></div>
+          <div><dt>字节</dt><dd data-stat="bytes">0</dd></div>
+          <div><dt>控制帧</dt><dd data-stat="frames">0</dd></div>
+          <div><dt>参数 ACK</dt><dd data-stat="parameterAcks">0</dd></div>
+          <div><dt>速度 ACK</dt><dd data-stat="actuatorAcks">0</dd></div>
+          <div><dt>CRC 错误</dt><dd data-stat="crcErrors">0</dd></div>
+          <div><dt>序号缺口</dt><dd data-stat="seqGaps">0</dd></div>
+          <div><dt>异常 ACK</dt><dd data-stat="unexpectedAcks">0</dd></div>
         </dl>
       </section>
     </aside>
   </main>
 
   <footer>
-    <span>&#21327;&#35758; v1 / &#25511;&#21046;&#24103; 56 B / CRC16-CCITT</span>
+    <span>协议 v1 / Control 112 B / CRC16-CCITT / 100 Hz</span>
     <span id="browserStatus"></span>
   </footer>
-  <script type="module" src="app.js"></script>
+  <script type="module" src="app.js?v=20260719-local-bridge"></script>
 </body>
 </html>

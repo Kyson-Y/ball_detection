@@ -21,6 +21,7 @@ config/local_paths.ps1
 *.htm
 
 # Generated diagnostics and temporary files
+__pycache__/
 platform/generated/Event.dot
 tests/artifacts/
 *.log
