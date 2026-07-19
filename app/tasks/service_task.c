@@ -4,11 +4,13 @@
 
 #include "FreeRTOS.h"
 #include "bsp_led.h"
+#include "bsp_i2c.h"
 #include "bsp_reflectance.h"
 #include "bsp_supply_voltage.h"
 #include "bsp_tfmini_uart.h"
 #include "bsp_time.h"
 #include "command_service.h"
+#include "imu_service.h"
 #include "motor_profile.h"
 #include "queue.h"
 #include "rtos_diagnostics.h"
@@ -18,6 +20,7 @@
 #include "task.h"
 #include "telemetry.h"
 #include "tfmini_s.h"
+#include "tfmini_transport_config.h"
 
 #define SERVICE_TASK_PERIOD pdMS_TO_TICKS(1U)
 #define SERVICE_HEARTBEAT_TIMEOUT pdMS_TO_TICKS(1500U)
@@ -28,9 +31,25 @@
 #define SERVICE_SUPPLY_SAMPLE_PERIOD pdMS_TO_TICKS(10U)
 #define SERVICE_SUPPLY_TELEMETRY_PERIOD pdMS_TO_TICKS(100U)
 #define SERVICE_TFMINI_TELEMETRY_PERIOD pdMS_TO_TICKS(50U)
-#define SERVICE_TFMINI_QUERY_DELAY pdMS_TO_TICKS(250U)
-#define SERVICE_TFMINI_QUERY_RETRY_PERIOD pdMS_TO_TICKS(500U)
-#define SERVICE_TFMINI_QUERY_MAX_ATTEMPTS 3U
+#define SERVICE_TFMINI_I2C_PERIOD pdMS_TO_TICKS(20U)
+#define SERVICE_TFMINI_I2C_ADDRESS 0x10U
+#define SERVICE_TFMINI_I2C_RESPONSE_DELAY_US 1000U
+#define SERVICE_IMU_TELEMETRY_PERIOD pdMS_TO_TICKS(40U)
+#define SERVICE_TFMINI_TRANSPORT_I2C 1U
+#define SERVICE_TFMINI_TRANSPORT_MIGRATION 2U
+#define SERVICE_TFMINI_MIGRATION_MIN_VALID_FRAMES 5U
+#define SERVICE_TFMINI_MIGRATION_SETTLE_PERIOD pdMS_TO_TICKS(100U)
+#define SERVICE_TFMINI_MIGRATION_COMPLETE_PERIOD pdMS_TO_TICKS(500U)
+
+typedef enum {
+    SERVICE_TFMINI_MIGRATION_WAIT_VALID = 0U,
+    SERVICE_TFMINI_MIGRATION_WAIT_SWITCH_SETTLE,
+    SERVICE_TFMINI_MIGRATION_WAIT_SAVE_SETTLE,
+    SERVICE_TFMINI_MIGRATION_COMPLETE
+} service_tfmini_migration_state_t;
+
+volatile tfmini_i2c_migration_diagnostics_t
+    g_tfmini_i2c_migration_diag;
 
 void ServiceTask_Entry(void *context)
 {
@@ -42,8 +61,12 @@ void ServiceTask_Entry(void *context)
     TickType_t last_supply_sample_time = last_wake_time;
     TickType_t last_supply_telemetry_time = last_wake_time;
     TickType_t last_tfmini_telemetry_time = last_wake_time;
-    TickType_t last_tfmini_query_time = last_wake_time;
-    TickType_t tfmini_start_time = last_wake_time;
+    TickType_t last_imu_telemetry_time = last_wake_time;
+#if TFMINI_S_ENABLE_UART_TO_I2C_MIGRATION
+    TickType_t last_tfmini_migration_time = last_wake_time;
+#else
+    TickType_t last_tfmini_i2c_time = last_wake_time;
+#endif
     uint32_t heartbeat_sequence = 0U;
     uint8_t reflectance_scan_divider = 0U;
     uint8_t tfmini_query_attempt_count = 0U;
@@ -55,7 +78,9 @@ void ServiceTask_Entry(void *context)
         bsp_reflectance_sample_t reflectance_sample;
         bsp_supply_voltage_sample_t supply_sample;
         uint32_t now_us;
+#if TFMINI_S_ENABLE_UART_TO_I2C_MIGRATION
         uint8_t tfmini_byte;
+#endif
 
         (void) xTaskDelayUntil(&last_wake_time, SERVICE_TASK_PERIOD);
         now = xTaskGetTickCount();
@@ -63,49 +88,157 @@ void ServiceTask_Entry(void *context)
         g_rtos_diag.service_task_last_wake_tick = now;
 
         CommandService_ProcessRx();
-        SerialTx_Service();
-        BSP_TfminiUart_ServiceTx();
         now_us = BSP_Time_GetUs();
+#if TFMINI_S_ENABLE_UART_TO_I2C_MIGRATION
+        BSP_TfminiUart_ServiceTx();
         while (BSP_TfminiUart_TryRead(&tfmini_byte)) {
             TfminiS_ProcessByte(tfmini_byte, now_us);
         }
         TfminiS_Update(now_us);
 
-        if (!TfminiS_HasFirmwareVersion() &&
-            (tfmini_query_attempt_count <
-                SERVICE_TFMINI_QUERY_MAX_ATTEMPTS) &&
-            (((tfmini_query_attempt_count == 0U) &&
-                 ((TickType_t) (now - tfmini_start_time) >=
-                     SERVICE_TFMINI_QUERY_DELAY)) ||
-                ((tfmini_query_attempt_count != 0U) &&
-                 ((TickType_t) (now - last_tfmini_query_time) >=
-                     SERVICE_TFMINI_QUERY_RETRY_PERIOD)))) {
-            uint8_t version_query[TFMINI_S_VERSION_QUERY_BYTES];
-            uint8_t version_query_length =
-                TfminiS_BuildFirmwareVersionQuery(version_query);
+        {
+            tfmini_s_snapshot_t snapshot;
 
-            if (BSP_TfminiUart_TryWrite(
-                    version_query, version_query_length)) {
-                tfmini_query_attempt_count++;
-                last_tfmini_query_time = now;
+            TfminiS_GetSnapshot(now_us, &snapshot);
+            g_tfmini_i2c_migration_diag.observed_valid_frame_count =
+                snapshot.valid_measurement_count;
+            g_tfmini_i2c_migration_diag.command_response_count =
+                snapshot.command_frame_count;
+
+            if ((g_tfmini_i2c_migration_diag.state ==
+                    SERVICE_TFMINI_MIGRATION_WAIT_VALID) &&
+                (snapshot.online != 0U) &&
+                (snapshot.valid_measurement_count >=
+                    SERVICE_TFMINI_MIGRATION_MIN_VALID_FRAMES)) {
+                uint8_t command[TFMINI_S_SET_INTERFACE_BYTES];
+                uint8_t length = TfminiS_BuildSetI2cCommand(command);
+
+                g_tfmini_i2c_migration_diag.switch_attempt_count++;
+                if (BSP_TfminiUart_TryWrite(command, length)) {
+                    g_tfmini_i2c_migration_diag.switch_sent_count++;
+                    g_tfmini_i2c_migration_diag.state =
+                        SERVICE_TFMINI_MIGRATION_WAIT_SWITCH_SETTLE;
+                    g_tfmini_i2c_migration_diag.last_transition_tick = now;
+                    last_tfmini_migration_time = now;
+                }
+            } else if ((g_tfmini_i2c_migration_diag.state ==
+                    SERVICE_TFMINI_MIGRATION_WAIT_SWITCH_SETTLE) &&
+                ((TickType_t) (now - last_tfmini_migration_time) >=
+                    SERVICE_TFMINI_MIGRATION_SETTLE_PERIOD)) {
+                uint8_t command[TFMINI_S_SAVE_SETTINGS_BYTES];
+                uint8_t length =
+                    TfminiS_BuildSaveSettingsCommand(command);
+
+                g_tfmini_i2c_migration_diag.save_attempt_count++;
+                if (BSP_TfminiUart_TryWrite(command, length)) {
+                    g_tfmini_i2c_migration_diag.save_sent_count++;
+                    g_tfmini_i2c_migration_diag.state =
+                        SERVICE_TFMINI_MIGRATION_WAIT_SAVE_SETTLE;
+                    g_tfmini_i2c_migration_diag.last_transition_tick = now;
+                    last_tfmini_migration_time = now;
+                }
+            } else if ((g_tfmini_i2c_migration_diag.state ==
+                    SERVICE_TFMINI_MIGRATION_WAIT_SAVE_SETTLE) &&
+                ((TickType_t) (now - last_tfmini_migration_time) >=
+                    SERVICE_TFMINI_MIGRATION_COMPLETE_PERIOD)) {
+                g_tfmini_i2c_migration_diag.state =
+                    SERVICE_TFMINI_MIGRATION_COMPLETE;
+                g_tfmini_i2c_migration_diag.completed_count++;
+                g_tfmini_i2c_migration_diag.last_transition_tick = now;
+            }
+        }
+#else
+        if (ImuService_NeedsBusAccess(now)) {
+            if (SerialTx_TryBeginPriorityQuietWindow()) {
+                ImuService_Process(now);
+                SerialTx_EndQuietWindow();
+            }
+        } else {
+            ImuService_Process(now);
+        }
+
+        if ((TickType_t) (now - last_tfmini_i2c_time) >=
+            SERVICE_TFMINI_I2C_PERIOD) {
+            if (SerialTx_TryBeginPriorityQuietWindow()) {
+                uint8_t query[TFMINI_S_I2C_QUERY_BYTES];
+                uint8_t frame[TFMINI_S_DATA_FRAME_BYTES];
+                uint8_t query_length =
+                    TfminiS_BuildI2cMeasurementQuery(query);
+                uint8_t index;
+
+                last_tfmini_i2c_time += SERVICE_TFMINI_I2C_PERIOD;
+                if ((TickType_t) (now - last_tfmini_i2c_time) >=
+                    SERVICE_TFMINI_I2C_PERIOD) {
+                    last_tfmini_i2c_time = now;
+                }
+                if (tfmini_query_attempt_count < UINT8_MAX) {
+                    tfmini_query_attempt_count++;
+                }
+                if (BSP_I2C_WriteReadDelay(SERVICE_TFMINI_I2C_ADDRESS,
+                        query, query_length, frame,
+                        TFMINI_S_DATA_FRAME_BYTES,
+                        SERVICE_TFMINI_I2C_RESPONSE_DELAY_US) ==
+                        BSP_I2C_RESULT_OK) {
+                    now_us = BSP_Time_GetUs();
+                    for (index = 0U; index < TFMINI_S_DATA_FRAME_BYTES;
+                         index++) {
+                        TfminiS_ProcessByte(frame[index], now_us);
+                    }
+                }
+                SerialTx_EndQuietWindow();
+            }
+        }
+        TfminiS_Update(now_us);
+#endif
+
+        /* I2C gets its due slot before ServiceTask starts the next DMA block. */
+        SerialTx_Service();
+
+        if ((TickType_t) (now - last_imu_telemetry_time) >=
+            SERVICE_IMU_TELEMETRY_PERIOD) {
+            imu_service_snapshot_t imu_snapshot;
+
+            last_imu_telemetry_time = now;
+            if (ImuService_GetSnapshot(&imu_snapshot)) {
+                (void) Telemetry_PublishImu(&imu_snapshot);
             }
         }
 
         if ((TickType_t) (now - last_tfmini_telemetry_time) >=
             SERVICE_TFMINI_TELEMETRY_PERIOD) {
             telemetry_tfmini_sample_t tfmini_telemetry;
+#if TFMINI_S_ENABLE_UART_TO_I2C_MIGRATION
             const volatile bsp_tfmini_uart_diagnostics_t *uart_diag =
                 BSP_TfminiUart_GetDiagnostics();
+#else
+            const volatile bsp_i2c_diagnostics_t *i2c_diag =
+                BSP_I2C_GetDiagnostics();
+#endif
 
             last_tfmini_telemetry_time = now;
             TfminiS_GetSnapshot(now_us, &tfmini_telemetry.snapshot);
+#if TFMINI_S_ENABLE_UART_TO_I2C_MIGRATION
             tfmini_telemetry.uart_rx_overflow_count =
                 uart_diag->rx_overflow_count;
+#else
+            tfmini_telemetry.uart_rx_overflow_count = 0U;
+#endif
             tfmini_telemetry.query_attempt_count =
                 tfmini_query_attempt_count;
-            tfmini_telemetry.reserved[0] = 0U;
-            tfmini_telemetry.reserved[1] = 0U;
-            tfmini_telemetry.reserved[2] = 0U;
+#if TFMINI_S_ENABLE_UART_TO_I2C_MIGRATION
+            tfmini_telemetry.reserved[0] =
+                SERVICE_TFMINI_TRANSPORT_MIGRATION;
+            tfmini_telemetry.reserved[1] =
+                (uint8_t) g_tfmini_i2c_migration_diag.state;
+            tfmini_telemetry.reserved[2] =
+                (uint8_t) g_tfmini_i2c_migration_diag.save_sent_count;
+#else
+            tfmini_telemetry.reserved[0] = SERVICE_TFMINI_TRANSPORT_I2C;
+            tfmini_telemetry.reserved[1] = (uint8_t) i2c_diag->last_result;
+            tfmini_telemetry.reserved[2] =
+                (i2c_diag->nack_count > UINT8_MAX) ? UINT8_MAX :
+                    (uint8_t) i2c_diag->nack_count;
+#endif
             (void) Telemetry_PublishTfmini(&tfmini_telemetry);
         }
 

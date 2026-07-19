@@ -6,6 +6,9 @@
 
 #define TFMINI_S_DATA_FRAME_BYTES 9U
 #define TFMINI_S_VERSION_QUERY_BYTES 4U
+#define TFMINI_S_I2C_QUERY_BYTES 5U
+#define TFMINI_S_SET_INTERFACE_BYTES 5U
+#define TFMINI_S_SAVE_SETTINGS_BYTES 4U
 #define TFMINI_S_OFFLINE_TIMEOUT_US 250000U
 
 typedef enum {
@@ -56,5 +59,11 @@ void TfminiS_GetSnapshot(
 bool TfminiS_HasFirmwareVersion(void);
 uint8_t TfminiS_BuildFirmwareVersionQuery(
     uint8_t command[TFMINI_S_VERSION_QUERY_BYTES]);
+uint8_t TfminiS_BuildI2cMeasurementQuery(
+    uint8_t command[TFMINI_S_I2C_QUERY_BYTES]);
+uint8_t TfminiS_BuildSetI2cCommand(
+    uint8_t command[TFMINI_S_SET_INTERFACE_BYTES]);
+uint8_t TfminiS_BuildSaveSettingsCommand(
+    uint8_t command[TFMINI_S_SAVE_SETTINGS_BYTES]);
 
 #endif

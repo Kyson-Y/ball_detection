@@ -8,7 +8,9 @@
 #include "bsp_time.h"
 #include "chassis_actuator.h"
 #include "command_service.h"
+#include "imu_service.h"
 #include "motor_profile.h"
+#include "mpu6050.h"
 #include "parameter_service.h"
 #include "rtos_diagnostics.h"
 #include "serial_rx.h"
@@ -17,6 +19,7 @@
 #include "system_health.h"
 #include "task.h"
 #include "tfmini_s.h"
+#include "tfmini_transport_config.h"
 #include "ti_msp_dl_config.h"
 
 int main(void)
@@ -30,7 +33,11 @@ int main(void)
     BSP_Reflectance_Init();
     BSP_SupplyVoltage_Init();
     TfminiS_Init();
+    Mpu6050_InitDiagnostics();
+    ImuService_Init();
+#if TFMINI_S_ENABLE_UART_TO_I2C_MIGRATION
     BSP_TfminiUart_Init();
+#endif
     SerialTx_Init();
     SerialRx_Init();
     ParameterService_Init();

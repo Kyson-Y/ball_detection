@@ -313,3 +313,25 @@ quiet-window 门禁。这些维护不代表 Phase 2A 功能已经实现。
   PA0/PA1 的 I2C0 与 OLED 0x3C 共总线。当前未切换或保存 I2C 设置。
 - 详细接线和协议：`docs/hardware/TFMINI_S_LIDAR.md`；过程记录：
   `docs/worklogs/2026-07-19_tfmini_s_uart_bringup.md`。
+
+## 16. TFmini-S I2C + OLED + MPU6xxx 联合驱动（2026-07-19）
+
+- TFmini-S 已通过一次性 UART 命令永久切换并保存为 I2C 模式；当前地址 `0x10`，
+  与 OLED `0x3C`、MPU6xxx `0x68` 共用 `PA0/PA1 @ 400 kbit/s`。
+- 初始 I2C 全低的根因是 SCL 误接 GND；改回 `PA1/SCL` 后，OLED 与两类传感器均正常。
+- TFmini 写取数命令后保留手册要求的 1 ms 延时；MPU 寄存器读取使用无额外延时 API。
+- 实机 `WHO_AM_I=0x70`，按 MPU6500-compatible Profile 驱动；配置 100 Hz、+/-500 dps、
+  +/-4 g、42 Hz DLPF，启动静止校准 300 点。
+- 新增 type 11 IMU 遥测与 issue 19/20 `IMU_OFFLINE/IMU_STALE`；上位机工具可报告
+  IMU 遥测率、实际采样率、三轴数据、温度、状态、地址和 `WHO_AM_I`。
+- UART DMA 改为 ServiceTask 统一启动且单块不超过 160 B；OLED 刷新改为可续传短块，
+  共享总线下不会再用约 40 ms 整屏事务挤掉 IMU 采样。
+- 最终 60 秒：IMU `100.000 Hz`、TFmini `49.993 Hz`；IMU sample failure 0，TFmini
+  checksum/timeout 0，I2C error 0，OLED online/持续刷新，Health active/sticky 0，
+  deadline 和设备端 drop 0，actuator output permitted 0。
+- FreeRTOS/App 全量构建 0 Error / 0 Warning，Code=77,372，ZI=19,044；最终 HEX SHA-256
+  `FC49A2B41F82353129A71677E0ECADA2CA4EC5FF688FD16A61D199180220386A`，
+  CMSIS-DAP `2b5d6f2a` / 500 kHz program/verify/reset 通过。
+- 主机 COM9 仍出现 CRC/gap，设备端错误计数为 0，结论仍指向红外地址线切换的电气串扰；
+  TFmini 当前对着盲区目标读 0 cm，非零 I2C 距离值仍需移动目标后补测。
+- 详细记录：`docs/worklogs/2026-07-19_tfmini_i2c_oled_mpu_combined.md`。

@@ -19,12 +19,20 @@ typedef struct {
     uint16_t reserved;
 } ssd1306_diagnostics_t;
 
+typedef enum {
+    SSD1306_REFRESH_STEP_FAILED = 0U,
+    SSD1306_REFRESH_STEP_PENDING,
+    SSD1306_REFRESH_STEP_COMPLETE
+} ssd1306_refresh_step_result_t;
+
 extern volatile ssd1306_diagnostics_t g_ssd1306_diag;
 
 bool Ssd1306_Init(void);
 void Ssd1306_Clear(void);
 void Ssd1306_DrawText(uint8_t x, uint8_t page, const char *text);
 bool Ssd1306_Refresh(void);
+void Ssd1306_BeginRefresh(void);
+ssd1306_refresh_step_result_t Ssd1306_RefreshStep(void);
 bool Ssd1306_IsOnline(void);
 uint8_t Ssd1306_GetAddress(void);
 void Ssd1306_MarkOffline(void);

@@ -64,6 +64,9 @@ static void BuildDataFrame(uint8_t frame[TFMINI_S_DATA_FRAME_BYTES],
 int TfminiS_ParserTest_Run(void)
 {
     uint8_t query[TFMINI_S_VERSION_QUERY_BYTES];
+    uint8_t i2c_query[TFMINI_S_I2C_QUERY_BYTES];
+    uint8_t set_i2c[TFMINI_S_SET_INTERFACE_BYTES];
+    uint8_t save_settings[TFMINI_S_SAVE_SETTINGS_BYTES];
     uint8_t data_frame[TFMINI_S_DATA_FRAME_BYTES];
     uint8_t version_response[7] = {
         0x5AU, 0x07U, 0x01U, 0x01U, 0x08U, 0x03U, 0U
@@ -76,6 +79,26 @@ int TfminiS_ParserTest_Run(void)
     CHECK(query[1] == 0x04U);
     CHECK(query[2] == 0x01U);
     CHECK(query[3] == 0x5FU);
+
+    CHECK(TfminiS_BuildI2cMeasurementQuery(i2c_query) == 5U);
+    CHECK(i2c_query[0] == 0x5AU);
+    CHECK(i2c_query[1] == 0x05U);
+    CHECK(i2c_query[2] == 0x00U);
+    CHECK(i2c_query[3] == 0x01U);
+    CHECK(i2c_query[4] == 0x60U);
+
+    CHECK(TfminiS_BuildSetI2cCommand(set_i2c) == 5U);
+    CHECK(set_i2c[0] == 0x5AU);
+    CHECK(set_i2c[1] == 0x05U);
+    CHECK(set_i2c[2] == 0x0AU);
+    CHECK(set_i2c[3] == 0x01U);
+    CHECK(set_i2c[4] == 0x6AU);
+
+    CHECK(TfminiS_BuildSaveSettingsCommand(save_settings) == 4U);
+    CHECK(save_settings[0] == 0x5AU);
+    CHECK(save_settings[1] == 0x04U);
+    CHECK(save_settings[2] == 0x11U);
+    CHECK(save_settings[3] == 0x6FU);
 
     TfminiS_ProcessByte(0x12U, 0U);
     TfminiS_ProcessByte(0x59U, 0U);

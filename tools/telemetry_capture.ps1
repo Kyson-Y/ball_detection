@@ -29,6 +29,7 @@ $MotorProfileFrameType = 7
 $ReflectanceFrameType = 8
 $SupplyVoltageFrameType = 9
 $TfminiFrameType = 10
+$ImuFrameType = 11
 $LegacyControlPayloadLength = 40
 $DualOutputControlPayloadLength = 44
 $ControlPayloadLength = 96
@@ -40,6 +41,7 @@ $MotorProfilePayloadLength = 36
 $ReflectancePayloadLength = 36
 $SupplyVoltagePayloadLength = 24
 $TfminiPayloadLength = 64
+$ImuPayloadLength = 64
 $MinimumFrameLength = 16
 $MaximumPayloadLength = 128
 [uint64]$U32HalfRange = 2147483648
@@ -204,6 +206,7 @@ $motorProfileFrames = 0
 $reflectanceFrames = 0
 $supplyVoltageFrames = 0
 $tfminiFrames = 0
+$imuFrames = 0
 $unknownFrames = 0
 $crcErrors = 0
 [uint64]$sequenceGaps = 0
@@ -233,6 +236,10 @@ $firstTfminiTimestamp = $null
 $lastTfminiTimestamp = $null
 $firstTfminiSampleSequence = $null
 $lastTfminiSampleSequence = $null
+$firstImuTimestamp = $null
+$lastImuTimestamp = $null
+$firstImuSampleSequence = $null
+$lastImuSampleSequence = $null
 $supplyRawMinimum = [uint16]::MaxValue
 $supplyRawMaximum = 0
 [uint64]$supplyRawSum = 0
@@ -254,6 +261,7 @@ $latestMotorProfile = $null
 $latestReflectance = $null
 $latestSupplyVoltage = $null
 $latestTfmini = $null
+$latestImu = $null
 
 try {
     while (($offset + $MinimumFrameLength) -le $data.Length) {
@@ -695,6 +703,72 @@ try {
                 QueryAttemptCount = $data[$payloadOffset + 63]
             }
         }
+        elseif (($frameType -eq $ImuFrameType) -and
+            ($payloadLength -eq $ImuPayloadLength)) {
+            $imuFrames++
+            $imuSampleSequence = [BitConverter]::ToUInt32(
+                $data, $payloadOffset)
+            $imuFlags = $data[$payloadOffset + 55]
+            if ($null -eq $firstImuTimestamp) {
+                $firstImuTimestamp = $timestampUs
+                $firstImuSampleSequence = $imuSampleSequence
+            }
+            $lastImuTimestamp = $timestampUs
+            $lastImuSampleSequence = $imuSampleSequence
+            $imuState = $data[$payloadOffset + 52]
+            $latestImu = [pscustomobject]@{
+                SampleSequence = $imuSampleSequence
+                MeasurementTimestampUs = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 4)
+                AgeUs = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 8)
+                UpdateSequence = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 12)
+                AccelG = @(
+                    [Math]::Round([BitConverter]::ToSingle(
+                        $data, $payloadOffset + 16), 5),
+                    [Math]::Round([BitConverter]::ToSingle(
+                        $data, $payloadOffset + 20), 5),
+                    [Math]::Round([BitConverter]::ToSingle(
+                        $data, $payloadOffset + 24), 5)
+                )
+                AccelNormG = [Math]::Round([BitConverter]::ToSingle(
+                    $data, $payloadOffset + 28), 5)
+                GyroDps = @(
+                    [Math]::Round([BitConverter]::ToSingle(
+                        $data, $payloadOffset + 32), 5),
+                    [Math]::Round([BitConverter]::ToSingle(
+                        $data, $payloadOffset + 36), 5),
+                    [Math]::Round([BitConverter]::ToSingle(
+                        $data, $payloadOffset + 40), 5)
+                )
+                TemperatureC = [Math]::Round([BitConverter]::ToSingle(
+                    $data, $payloadOffset + 44), 2)
+                CalibrationSamples = [BitConverter]::ToUInt16(
+                    $data, $payloadOffset + 48)
+                CalibrationTargetSamples = [BitConverter]::ToUInt16(
+                    $data, $payloadOffset + 50)
+                State = $imuState
+                StateName = switch ($imuState) {
+                    0 { "PROBE" }
+                    1 { "RESET" }
+                    2 { "SETTLE" }
+                    3 { "CAL" }
+                    4 { "READY" }
+                    default { "UNKNOWN" }
+                }
+                Address = ('0x{0:X2}' -f $data[$payloadOffset + 53])
+                WhoAmI = ('0x{0:X2}' -f $data[$payloadOffset + 54])
+                Online = (($imuFlags -band 0x01) -ne 0)
+                Valid = (($imuFlags -band 0x02) -ne 0)
+                Calibrated = (($imuFlags -band 0x04) -ne 0)
+                Ready = (($imuFlags -band 0x08) -ne 0)
+                SampleSuccessCount = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 56)
+                SampleFailureCount = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 60)
+            }
+        }
         else {
             $unknownFrames++
         }
@@ -788,6 +862,17 @@ $summary = [pscustomobject]@{
         [Math]::Round(
             $tfminiDistanceSumCm / [double]$tfminiValidDistanceCount, 3)
     } else { 0.0 }
+    ImuFrames = $imuFrames
+    ImuTelemetryRateHz = Get-RateHz -Count $imuFrames `
+        -FirstTimestamp $firstImuTimestamp -LastTimestamp $lastImuTimestamp
+    ImuSampleRateHz = if (($imuFrames -gt 1) -and
+        ($lastImuTimestamp -ne $firstImuTimestamp)) {
+        [Math]::Round(
+            (Get-U32Delta -Current $lastImuSampleSequence `
+                -Previous $firstImuSampleSequence) * 1000000.0 /
+            (Get-U32Delta -Current $lastImuTimestamp `
+                -Previous $firstImuTimestamp), 3)
+    } else { 0.0 }
     UnknownFrames = $unknownFrames
     CrcErrors = $crcErrors
     SequenceGaps = $sequenceGaps
@@ -810,6 +895,7 @@ $summary = [pscustomobject]@{
     LatestReflectance = $latestReflectance
     LatestSupplyVoltage = $latestSupplyVoltage
     LatestTfmini = $latestTfmini
+    LatestImu = $latestImu
     CsvPath = $CsvPath
     JsonPath = $JsonPath
 }
@@ -833,9 +919,11 @@ $minimumHealthFrames = if ($DurationSeconds -ge 3) {
 else {
     0
 }
+$minimumImuFrames = [int]($DurationSeconds * 20)
 $rateGateFailed = ($PSCmdlet.ParameterSetName -eq "Serial") -and
     (($controlFrames -lt $minimumControlFrames) -or
-     ($healthFrames -lt $minimumHealthFrames))
+     ($healthFrames -lt $minimumHealthFrames) -or
+     ($imuFrames -lt $minimumImuFrames))
 if (($crcErrors -ne 0) -or
     ($sequenceGaps -ne 0) -or
     ($sequenceDuplicates -ne 0) -or

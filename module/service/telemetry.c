@@ -30,7 +30,8 @@ typedef enum {
     TELEMETRY_MESSAGE_MOTOR_PROFILE = 5U,
     TELEMETRY_MESSAGE_REFLECTANCE = 6U,
     TELEMETRY_MESSAGE_SUPPLY_VOLTAGE = 7U,
-    TELEMETRY_MESSAGE_TFMINI = 8U
+    TELEMETRY_MESSAGE_TFMINI = 8U,
+    TELEMETRY_MESSAGE_IMU = 9U
 } telemetry_message_kind_t;
 
 typedef struct {
@@ -112,6 +113,7 @@ typedef struct {
         bsp_reflectance_sample_t reflectance;
         bsp_supply_voltage_sample_t supply_voltage;
         telemetry_tfmini_sample_t tfmini;
+        imu_service_snapshot_t imu;
         telemetry_health_sample_t health;
     } data;
 } telemetry_message_t;
@@ -461,6 +463,55 @@ static uint16_t Telemetry_EncodeTfmini(
     return Telemetry_EndFrame(frame, payload_length);
 }
 
+static uint16_t Telemetry_EncodeImu(
+    const telemetry_message_t *message, uint8_t *frame)
+{
+    const imu_service_snapshot_t *snapshot = &message->data.imu;
+    uint8_t *payload = &frame[FRAME_OFFSET_PAYLOAD];
+    uint8_t flags = 0U;
+    uint16_t payload_length = TELEMETRY_IMU_PAYLOAD_BYTES;
+
+    if (snapshot->online != 0U) {
+        flags |= 1U << 0;
+    }
+    if (snapshot->valid != 0U) {
+        flags |= 1U << 1;
+    }
+    if (snapshot->calibrated != 0U) {
+        flags |= 1U << 2;
+    }
+    if (snapshot->state == (uint8_t) IMU_SERVICE_STATE_READY) {
+        flags |= 1U << 3;
+    }
+
+    (void) Telemetry_BeginFrame(frame, TELEMETRY_FRAME_TYPE_IMU,
+        payload_length, message->sequence, message->timestamp_us);
+    Telemetry_PutU32(&payload[0], snapshot->sample_count);
+    Telemetry_PutU32(&payload[4], snapshot->timestamp_us);
+    Telemetry_PutU32(&payload[8],
+        message->timestamp_us - snapshot->timestamp_us);
+    Telemetry_PutU32(&payload[12], snapshot->update_sequence);
+    Telemetry_PutFloat(&payload[16], snapshot->accel_g[0]);
+    Telemetry_PutFloat(&payload[20], snapshot->accel_g[1]);
+    Telemetry_PutFloat(&payload[24], snapshot->accel_g[2]);
+    Telemetry_PutFloat(&payload[28], snapshot->accel_norm_g);
+    Telemetry_PutFloat(&payload[32], snapshot->gyro_filtered_dps[0]);
+    Telemetry_PutFloat(&payload[36], snapshot->gyro_filtered_dps[1]);
+    Telemetry_PutFloat(&payload[40], snapshot->gyro_filtered_dps[2]);
+    Telemetry_PutFloat(&payload[44], snapshot->temperature_c);
+    Telemetry_PutU16(&payload[48], snapshot->calibration_samples);
+    Telemetry_PutU16(&payload[50], snapshot->calibration_target_samples);
+    payload[52] = snapshot->state;
+    payload[53] = snapshot->address;
+    payload[54] = snapshot->who_am_i;
+    payload[55] = flags;
+    Telemetry_PutU32(&payload[56],
+        g_imu_service_diag.sample_success_count);
+    Telemetry_PutU32(&payload[60],
+        g_imu_service_diag.sample_failure_count);
+    return Telemetry_EndFrame(frame, payload_length);
+}
+
 static void Telemetry_Task(void *context)
 {
     telemetry_message_t message;
@@ -507,10 +558,14 @@ static void Telemetry_Task(void *context)
             frame_length = Telemetry_EncodeSupplyVoltage(&message, frame);
             g_telemetry_diag.last_frame_type =
                 TELEMETRY_FRAME_TYPE_SUPPLY_VOLTAGE;
-        } else {
+        } else if (message.kind == TELEMETRY_MESSAGE_TFMINI) {
             frame_length = Telemetry_EncodeTfmini(&message, frame);
             g_telemetry_diag.last_frame_type =
                 TELEMETRY_FRAME_TYPE_TFMINI;
+        } else {
+            frame_length = Telemetry_EncodeImu(&message, frame);
+            g_telemetry_diag.last_frame_type =
+                TELEMETRY_FRAME_TYPE_IMU;
         }
 
         crc_offset = (uint16_t) (frame_length - 2U);
@@ -758,6 +813,28 @@ bool Telemetry_PublishTfmini(
         g_telemetry_diag.tfmini_accepted_count++;
     } else {
         g_telemetry_diag.tfmini_dropped_count++;
+    }
+    return accepted;
+}
+
+bool Telemetry_PublishImu(const imu_service_snapshot_t *snapshot)
+{
+    telemetry_message_t message;
+    bool accepted;
+
+    g_telemetry_diag.imu_attempt_count++;
+    if ((snapshot == NULL) || (s_queue == NULL)) {
+        g_telemetry_diag.imu_dropped_count++;
+        return false;
+    }
+
+    message.kind = TELEMETRY_MESSAGE_IMU;
+    message.data.imu = *snapshot;
+    accepted = Telemetry_EnqueueMessage(&message);
+    if (accepted) {
+        g_telemetry_diag.imu_accepted_count++;
+    } else {
+        g_telemetry_diag.imu_dropped_count++;
     }
     return accepted;
 }

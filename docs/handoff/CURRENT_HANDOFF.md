@@ -2,10 +2,95 @@
 
 ```yaml
 handoff_schema: 1
-updated_at: 2026-07-19T20:11:45+08:00
+updated_at: 2026-07-19T23:04:40+08:00
 updated_by: Codex
-status: complete
+status: code_complete_hardware_followup
 ```
+
+## 0.000000 当前任务：TFmini-S I2C + OLED + MPU6xxx 联合驱动收尾
+
+- worktree `C:\Users\Auror\ECHO-513a-work`，分支
+  `refs/heads/codex/513a-motor-bringup`，开始/当前未提交 HEAD `3113074`。
+- 用户已有 dirty `docs/hardware/ECHO_WIRING_GUIDE.md`，其中 PB8 行为用户内容，禁止覆盖、
+  还原或暂存；`tmp/` 保持忽略且不进入 Git。
+- TFmini-S 已永久迁移到 I2C：黄线 PA0/SDA、绿线 PA1/SCL、红线受控 5 V、黑线 GND，
+  地址 `0x10`；OLED `0x3C` 与 IMU `0x68` 共用 I2C0 400 kHz。
+- 初始失败根因为用户把 SCL 插到 GND；改回 PA1 后总线恢复。禁止把该问题归因于驱动。
+- IMU 实机 `WHO_AM_I=0x70`，按 MPU6500-compatible 驱动；100 Hz、+/-500 dps、+/-4 g、
+  42 Hz DLPF、300 点启动静止校准。type 11 以 25 Hz 发布，Health issue 19/20 已接入。
+- OLED 使用可续传 7 字节 step 刷新；UART DMA 由 ServiceTask 启动、单块最多 160 B；
+  TFmini 使用固定 20 ms 基准并保留写后读 1 ms 延时。
+- 最终全量构建 0 Error / 0 Warning，Code=77,372，ZI=19,044；HEX SHA-256
+  `FC49A2B41F82353129A71677E0ECADA2CA4EC5FF688FD16A61D199180220386A`；
+  CMSIS-DAP `2b5d6f2a` / 500 kHz program/verify/reset 通过。
+- 最终 60 秒：IMU `100.000 Hz`、TFmini `49.993 Hz`；IMU sample failure 0，TFmini
+  checksum/timeout 0，I2C error 0，OLED online/持续刷新，Health active/sticky 0，
+  deadline/设备端 drop 0，actuator output permitted 0。
+- 最后 IMU：READY、300/300、`0x68/WHO_AM_I 0x70`、29.61 C、accel norm 1.02086 g、
+  filtered gyro `[-0.01134, 0.01795, 0.02325] dps`。
+- 未关闭：主机 COM9 因红外地址线切换耦合仍有 CRC/gap；TFmini 目前对着盲区目标为 0 cm；
+  IMU 方向/六面/温漂/物理断开未测。下一步先把目标移出盲区，再处理 UART 电气串扰。
+- 四份 host fixture 通过，PowerShell parser 语法和 `git diff --check` 通过。本次只显式暂存
+  任务文件并创建 scoped commit；禁止 `git add .`、禁止 push。
+
+## 0.00000 当前任务：TFmini-S I2C 实机测试
+
+- 用户确认已接好 I2C：TFmini-S `SDA -> PA0/I2C0_SDA`、`SCL -> PA1/I2C0_SCL`，
+  红线为受控 5.0 V、黑线共地；OLED 继续共享 I2C0，总线地址 `0x3C`。
+- 当前 HEAD：`3113074`，分支：`refs/heads/codex/513a-motor-bringup`；
+  用户已有 dirty 文件 `docs/hardware/ECHO_WIRING_GUIDE.md`，禁止覆盖、还原或暂存，`tmp/` 保持未跟踪。
+- 本次目标：先只读探测 TFmini-S 默认 7 位地址 `0x10`，再以保守周期发送
+  `5A 05 00 01 60` 并读取 9 字节测距帧；记录 ACK/NACK、超时、校验和帧率，同时验证 OLED 在线。
+- 不发送 UART/I2C 模式切换或保存命令；若 `0x10` NACK，则判定模块仍处于 UART 模式并停止 I2C 读取。
+- 两路电机目标、PWM、armed 和 output permitted 必须保持为零；本次不执行任何运动输出。
+- BSP 需要补充互斥保护的 I2C 写后读 API，复用现有超时、错误统计和总线恢复；
+  ServiceTask 改为 I2C 传输，保留现有 TFmini-S 解析器和 type 10 遥测格式。
+- 已完成 I2C 写后读 BSP、20 ms TFmini-S I2C 轮询和命令构造夹具；UART1 自动查询已停用。
+- FreeRTOS/App 全量重建均为 0 Error / 0 Warning；Code=73,088，ZI=18,508。
+- HEX SHA-256 为 `934E635D95620E55F6676610FABAAFC678A3FC0CEE858CE337896B54E3FA0B64`；
+  CMSIS-DAP `2b5d6f2a` / 500 kHz program/reset 通过，76,488 B Flash 逐字节回读
+  SHA-256 `D64187C95B313AB98A0F5C9F7E4E11D2EE7BA9D0CFE9373138BCDBCDA5E20E2D` 与构建一致。
+- 20 秒同一 OpenOCD 会话实测：`0x10` 写后读 1019 次、写成功 0、读成功 0，
+  先出现 44 次 NACK，随后因 TFmini-S 的 UART TX 接在 SCL 上产生 1017 次 bus-busy；
+  TFmini 数据帧/有效帧/校验错误均为 0。确认模块内部仍处于 UART 模式，不是 I2C 接口。
+- 同次 OLED 初始化 21 次、成功 0，地址为 0，确认共享总线被 UART TX 拖住；
+  Health active/sticky `0x00001800`，对应 I2C error + OLED offline。
+- 同次 SystemTask/ServiceTask 为 2040/20400，系统周期 9999--10001 us、最大 jitter 1 us、
+  deadline/fault 均为 0；左右目标、实际 PWM、normalized output、armed/output permitted 全为 0。
+- 当前阻塞于物理接线：需临时恢复 UART1，`PA8/TX -> 黄线/RXD`、`PA9/RX <- 绿线/TXD`，
+  然后发送切 I2C `5A 05 0A 01 6A`、保存 `5A 04 11 6F`，等待至少 1 秒并掉电重启；
+  再接回 `PA0/SDA`、`PA1/SCL` 复测。永久切换命令尚未发送。
+- 21:32 用户回复 `OK`，按 UART1 已恢复接线处理。已加入一次性迁移构建开关和状态机：
+  必须先收到至少 5 个有效 UART 测距帧，才发送切 I2C；100 ms 后发送保存，500 ms 后停止，
+  不循环发送。迁移固件尚未构建、烧录，永久命令仍未发送。
+- 一次性迁移固件 0 Error / 0 Warning，76,248 B Flash 逐字节回读一致；运行遥测确认迁移前
+  收到 11 个 UART 测距帧（9 个有效），随后收到 2 个合法命令回包、0 命令校验错误，
+  UART 测距流停止且 timeout 置位。确认切 I2C 和保存命令均被模块接受。
+- 迁移开关已恢复为 0；正式 I2C 固件正在重新构建，尚未完成烧录和 I2C 复测。
+- 正式 I2C 固件 0 Error / 0 Warning，HEX SHA-256
+  `9970064D58F5C55234A72CDDA0079D99ED71C2AFD50B511C7D714AD7044A9E6B`；
+  已烧录，76,488 B Flash 回读 SHA-256
+  `9E247703564C941DABA3389F5C885DE002C2089AFD2123323F23B05D852169C1` 与构建一致。
+- 当前板上为正式 I2C 固件。下一步需要用户断电，把黄线从 PA8 移到 PA0/SDA、绿线从 PA9
+  移到 PA1/SCL，红线 5 V、黑线 GND 不变，再重新上电；随后补 I2C 持久化冷启动和连续稳定性实测。
+- 用户重新上电后的多轮遥测仍为 I2C success 0、TFmini frame 0、OLED offline；其中两轮因用户说明
+  模块未上电而作废。模块确认上电后的 5 秒样本仍无 ACK。SWD 读取 `GPIOA.DIN31_0` 显示
+  PA0/PA1 空闲均为低，定位为总线无有效上拉或被硬件拉低。
+- 正在构建诊断固件：PA0/PA1 启用内部弱上拉，I2C 从 400 kHz 降到 100 kHz，并按 TFmini-S
+  手册在测距写命令后等待 1 ms 再读。内部上拉仅用于诊断，正式硬件仍应使用外部约 4.7 kOhm 上拉。
+- SysConfig 明确拒绝 I2C 开漏复用下的片内上拉，诊断构建判为无效并已撤销该配置；不能绕过工具
+  强行依赖内部上拉。保留 100 kHz 和 1 ms 写后读延时。硬件必须在 SDA、SCL 各增加约 4.7 kOhm
+  到 3.3 V 的外部上拉，或接入已确认带上拉且已供电的 I2C 扩展板后再测。
+- 用户确认此前把 SCL 误插到 GND；改回 `PA1/SCL` 后根因关闭。100 kHz 快测 TFmini-S 约 50 Hz、
+  7003 帧累计有效且 0 校验，OLED init/refresh 全成功。恢复 400 kHz 并保留手册要求的 1 ms
+  写后读延时后，20 秒联合验收：TFmini 遥测 386 帧、设备累计 2960/2960 有效、0 checksum、
+  0 timeout、50.0 Hz；I2C success 20,248/error 0，OLED online，Health active/sticky 0。
+- 同次 SystemTask 周期 9997--10003 us、max jitter 3 us、deadline 0；设备端 serial/telemetry drop 0，
+  actuator output permitted 0。当前距离 0 cm、强度约 1070，需把目标移出 10 cm 盲区再做距离值验收。
+- 用户追加要求今晚完成测距、OLED、陀螺仪驱动。测距与 OLED 链路已通过，正在把已完成 27000 秒
+  soak 的 MPU6050/MPU6500-compatible 驱动从独立 spike 语义移植到当前 513X + TFmini 固件。
+- 已新增 `mpu6050`、`ImuService`，拆分普通 I2C 写后读与 TFmini 1 ms 延时读，并接入已验证的
+  UART priority quiet window；当前尚未构建、烧录或板测 IMU 组合固件。
 
 ## 0.0000 当前任务：TFmini-S 激光测距接入
 

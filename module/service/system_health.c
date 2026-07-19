@@ -10,6 +10,7 @@
 #include "bsp_time.h"
 #include "chassis_actuator.h"
 #include "command_service.h"
+#include "imu_service.h"
 #include "motor_profile.h"
 #include "parameter_service.h"
 #include "rtos_diagnostics.h"
@@ -22,6 +23,9 @@
 #define SYSTEM_HEALTH_CONTROL_STALE_TICKS   pdMS_TO_TICKS(50U)
 #define SYSTEM_HEALTH_TELEMETRY_STALE_TICKS pdMS_TO_TICKS(250U)
 #define SYSTEM_HEALTH_DISPLAY_STALE_TICKS   pdMS_TO_TICKS(2500U)
+#define SYSTEM_HEALTH_DISPLAY_STARTUP_GRACE_TICKS pdMS_TO_TICKS(2000U)
+#define SYSTEM_HEALTH_IMU_STARTUP_GRACE_TICKS pdMS_TO_TICKS(2000U)
+#define SYSTEM_HEALTH_IMU_STALE_TICKS       pdMS_TO_TICKS(100U)
 #define SYSTEM_HEALTH_EVENT_HOLD_TICKS      pdMS_TO_TICKS(2000U)
 #define SYSTEM_HEALTH_STACK_WARN_WORDS      64U
 #define SYSTEM_HEALTH_STACK_FAULT_WORDS     32U
@@ -50,7 +54,7 @@ static const system_health_source_descriptor_t s_source_descriptors[] = {
     { SYSTEM_HEALTH_SOURCE_DISPLAY, "DISPLAY", "DisplayTask/SSD1306" },
     { SYSTEM_HEALTH_SOURCE_I2C, "I2C", "BSP I2C" },
     { SYSTEM_HEALTH_SOURCE_STORAGE, "STORAGE", "deferred" },
-    { SYSTEM_HEALTH_SOURCE_SENSOR, "SENSOR", "BSP encoder" },
+    { SYSTEM_HEALTH_SOURCE_SENSOR, "SENSOR", "BSP encoder/ImuService" },
     { SYSTEM_HEALTH_SOURCE_ACTUATOR, "ACTUATOR", "ChassisActuator" }
 };
 
@@ -119,7 +123,15 @@ static const system_health_issue_descriptor_t s_issue_descriptors[] = {
     { SYSTEM_HEALTH_ISSUE_ACTUATOR_COMMAND_REJECTED,
       SYSTEM_HEALTH_SOURCE_ACTUATOR, SYSTEM_HEALTH_DEGRADED,
       1U, "rejected command", "ACT CMD",
-      "keep outputs disabled and inspect the one-shot request", 1U }
+      "keep outputs disabled and inspect the one-shot request", 1U },
+    { SYSTEM_HEALTH_ISSUE_IMU_OFFLINE,
+      SYSTEM_HEALTH_SOURCE_SENSOR, SYSTEM_HEALTH_DEGRADED,
+      SYSTEM_HEALTH_IMU_STARTUP_GRACE_TICKS, "ticks", "IMU OFF",
+      "inspect PA0/PA1 wiring and the 0x68 I2C device", 1U },
+    { SYSTEM_HEALTH_ISSUE_IMU_STALE,
+      SYSTEM_HEALTH_SOURCE_SENSOR, SYSTEM_HEALTH_DEGRADED,
+      SYSTEM_HEALTH_IMU_STALE_TICKS, "ticks", "IMU STALE",
+      "inspect ServiceTask timing and I2C errors", 1U }
 };
 
 volatile system_health_snapshot_t g_system_health_snapshot;
@@ -155,7 +167,12 @@ static uint32_t SystemHealth_TelemetryDropCount(void)
 {
     return g_telemetry_diag.publish_dropped_count +
         g_telemetry_diag.ack_dropped_count +
+        g_telemetry_diag.actuator_ack_dropped_count +
+        g_telemetry_diag.motor_profile_dropped_count +
+        g_telemetry_diag.reflectance_dropped_count +
         g_telemetry_diag.supply_voltage_dropped_count +
+        g_telemetry_diag.tfmini_dropped_count +
+        g_telemetry_diag.imu_dropped_count +
         g_telemetry_diag.health_dropped_count +
         g_telemetry_diag.transport_dropped_count;
 }
@@ -302,9 +319,8 @@ static void SystemHealth_CaptureMetrics(system_health_snapshot_t *snapshot)
         (uint32_t) g_rtos_diag.heap_min_ever_free_bytes;
 
     snapshot->telemetry_publish_drop_count =
-        g_telemetry_diag.publish_dropped_count +
-        g_telemetry_diag.ack_dropped_count +
-        g_telemetry_diag.health_dropped_count;
+        SystemHealth_TelemetryDropCount() -
+        g_telemetry_diag.transport_dropped_count;
     snapshot->telemetry_transport_drop_count =
         g_telemetry_diag.transport_dropped_count;
     snapshot->serial_tx_drop_count = SystemHealth_SerialTxDropCount();
@@ -338,7 +354,9 @@ static void SystemHealth_CaptureMetrics(system_health_snapshot_t *snapshot)
     snapshot->source_updated_tick[SYSTEM_HEALTH_SOURCE_I2C] =
         (uint32_t) g_rtos_diag.display_task_last_wake_tick;
     snapshot->source_updated_tick[SYSTEM_HEALTH_SOURCE_SENSOR] =
-        (uint32_t) g_rtos_diag.system_task_last_wake_tick;
+        (g_imu_service_diag.last_sample_tick != 0U) ?
+            g_imu_service_diag.last_sample_tick :
+            (uint32_t) g_rtos_diag.system_task_last_wake_tick;
     snapshot->source_updated_tick[SYSTEM_HEALTH_SOURCE_ACTUATOR] =
         (uint32_t) g_rtos_diag.system_task_last_wake_tick;
 
@@ -457,9 +475,20 @@ static uint32_t SystemHealth_BuildActiveMask(
             SystemHealth_AddIssue(&mask, SYSTEM_HEALTH_ISSUE_HEAP_LOW);
         }
     }
-    if (g_ssd1306_diag.init_attempt_count != 0U &&
+    if ((now > SYSTEM_HEALTH_DISPLAY_STARTUP_GRACE_TICKS) &&
+        g_ssd1306_diag.init_attempt_count != 0U &&
         g_ssd1306_diag.online == 0U) {
         SystemHealth_AddIssue(&mask, SYSTEM_HEALTH_ISSUE_OLED_OFFLINE);
+    }
+    if ((g_imu_service_diag.initialized != 0U) &&
+        (now > SYSTEM_HEALTH_IMU_STARTUP_GRACE_TICKS) &&
+        (g_imu_service_diag.online == 0U)) {
+        SystemHealth_AddIssue(&mask, SYSTEM_HEALTH_ISSUE_IMU_OFFLINE);
+    } else if ((g_imu_service_diag.online != 0U) &&
+        SystemHealth_TaskIsStale(now,
+            (TickType_t) g_imu_service_diag.last_sample_tick,
+            SYSTEM_HEALTH_IMU_STALE_TICKS)) {
+        SystemHealth_AddIssue(&mask, SYSTEM_HEALTH_ISSUE_IMU_STALE);
     }
 
     if (SystemHealth_EventIsActive(
@@ -562,7 +591,8 @@ static void SystemHealth_UpdateLevels(system_health_snapshot_t *snapshot)
         SYSTEM_HEALTH_UNKNOWN;
     snapshot->source_level[SYSTEM_HEALTH_SOURCE_SENSOR] =
         ((g_bsp_encoder_diag.left.initialized != 0U) &&
-         (g_bsp_encoder_diag.right.initialized != 0U)) ?
+         (g_bsp_encoder_diag.right.initialized != 0U) &&
+         (g_imu_service_diag.initialized != 0U)) ?
         SYSTEM_HEALTH_OK : SYSTEM_HEALTH_UNKNOWN;
     snapshot->source_level[SYSTEM_HEALTH_SOURCE_ACTUATOR] =
         ((g_chassis_actuator_diag.initialized != 0U) &&

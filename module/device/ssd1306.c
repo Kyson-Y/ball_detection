@@ -68,6 +68,10 @@ volatile ssd1306_diagnostics_t g_ssd1306_diag;
 
 static uint8_t s_framebuffer[SSD1306_WIDTH * SSD1306_PAGES];
 static uint8_t s_address;
+static uint8_t s_refresh_page;
+static uint8_t s_refresh_column;
+static uint8_t s_refresh_page_command_pending;
+static uint8_t s_refresh_active;
 
 static const uint8_t *Ssd1306_FindGlyph(char character)
 {
@@ -208,51 +212,80 @@ void Ssd1306_DrawText(uint8_t x, uint8_t page, const char *text)
     }
 }
 
-bool Ssd1306_Refresh(void)
+void Ssd1306_BeginRefresh(void)
 {
-    uint8_t page;
+    s_refresh_page = 0U;
+    s_refresh_column = 0U;
+    s_refresh_page_command_pending = 1U;
+    s_refresh_active = (s_address != 0U) ? 1U : 0U;
+}
 
-    if (s_address == 0U) {
-        return false;
+ssd1306_refresh_step_result_t Ssd1306_RefreshStep(void)
+{
+    uint8_t packet[BSP_I2C_MAX_WRITE_BYTES];
+
+    if ((s_address == 0U) || (s_refresh_active == 0U)) {
+        return SSD1306_REFRESH_STEP_FAILED;
     }
 
-    for (page = 0U; page < SSD1306_PAGES; page++) {
-        uint8_t page_commands[3];
-        uint8_t column = 0U;
-
-        page_commands[0] = (uint8_t) (0xB0U + page);
-        page_commands[1] = 0x00U;
-        page_commands[2] = 0x10U;
-        if (!Ssd1306_WriteCommandBytes(s_address, page_commands, 3U)) {
+    if (s_refresh_page_command_pending != 0U) {
+        packet[0] = (uint8_t) (0xB0U + s_refresh_page);
+        packet[1] = 0x00U;
+        packet[2] = 0x10U;
+        if (!Ssd1306_WriteCommandBytes(s_address, packet, 3U)) {
             g_ssd1306_diag.refresh_fail_count++;
             Ssd1306_MarkOffline();
-            return false;
+            return SSD1306_REFRESH_STEP_FAILED;
         }
-
-        while (column < SSD1306_WIDTH) {
-            uint8_t packet[BSP_I2C_MAX_WRITE_BYTES];
-            uint8_t remaining = (uint8_t) (SSD1306_WIDTH - column);
-            uint8_t chunk = (remaining > SSD1306_DATA_CHUNK_BYTES) ?
-                SSD1306_DATA_CHUNK_BYTES : remaining;
-            uint8_t index;
-
-            packet[0] = SSD1306_CONTROL_DATA;
-            for (index = 0U; index < chunk; index++) {
-                packet[index + 1U] = s_framebuffer[
-                    ((uint16_t) page * SSD1306_WIDTH) + column + index];
-            }
-            if (BSP_I2C_Write(s_address, packet, (uint16_t) chunk + 1U) !=
-                BSP_I2C_RESULT_OK) {
-                g_ssd1306_diag.refresh_fail_count++;
-                Ssd1306_MarkOffline();
-                return false;
-            }
-            column = (uint8_t) (column + chunk);
-        }
+        s_refresh_page_command_pending = 0U;
+        return SSD1306_REFRESH_STEP_PENDING;
     }
 
-    g_ssd1306_diag.refresh_count++;
-    return true;
+    {
+        uint8_t remaining =
+            (uint8_t) (SSD1306_WIDTH - s_refresh_column);
+        uint8_t chunk = (remaining > SSD1306_DATA_CHUNK_BYTES) ?
+            SSD1306_DATA_CHUNK_BYTES : remaining;
+        uint8_t index;
+
+        packet[0] = SSD1306_CONTROL_DATA;
+        for (index = 0U; index < chunk; index++) {
+            packet[index + 1U] = s_framebuffer[
+                ((uint16_t) s_refresh_page * SSD1306_WIDTH) +
+                    s_refresh_column + index];
+        }
+        if (BSP_I2C_Write(s_address, packet, (uint16_t) chunk + 1U) !=
+            BSP_I2C_RESULT_OK) {
+            g_ssd1306_diag.refresh_fail_count++;
+            Ssd1306_MarkOffline();
+            return SSD1306_REFRESH_STEP_FAILED;
+        }
+        s_refresh_column = (uint8_t) (s_refresh_column + chunk);
+    }
+
+    if (s_refresh_column >= SSD1306_WIDTH) {
+        s_refresh_page++;
+        s_refresh_column = 0U;
+        s_refresh_page_command_pending = 1U;
+        if (s_refresh_page >= SSD1306_PAGES) {
+            s_refresh_active = 0U;
+            g_ssd1306_diag.refresh_count++;
+            return SSD1306_REFRESH_STEP_COMPLETE;
+        }
+    }
+    return SSD1306_REFRESH_STEP_PENDING;
+}
+
+bool Ssd1306_Refresh(void)
+{
+    ssd1306_refresh_step_result_t result;
+
+    Ssd1306_BeginRefresh();
+    do {
+        result = Ssd1306_RefreshStep();
+    } while (result == SSD1306_REFRESH_STEP_PENDING);
+
+    return result == SSD1306_REFRESH_STEP_COMPLETE;
 }
 
 bool Ssd1306_IsOnline(void)
@@ -270,4 +303,5 @@ void Ssd1306_MarkOffline(void)
     g_ssd1306_diag.online = 0U;
     g_ssd1306_diag.address = 0U;
     s_address = 0U;
+    s_refresh_active = 0U;
 }

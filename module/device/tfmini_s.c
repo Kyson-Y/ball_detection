@@ -9,6 +9,9 @@
 #define TFMINI_S_MAX_COMMAND_BYTES 16U
 #define TFMINI_S_MIN_COMMAND_BYTES 4U
 #define TFMINI_S_COMMAND_ID_VERSION 0x01U
+#define TFMINI_S_COMMAND_ID_GET_DATA 0x00U
+#define TFMINI_S_COMMAND_ID_INTERFACE 0x0AU
+#define TFMINI_S_COMMAND_ID_SAVE 0x11U
 #define TFMINI_S_MAX_DISTANCE_CM 2000U
 #define TFMINI_S_MIN_RELIABLE_STRENGTH 100U
 
@@ -287,4 +290,45 @@ uint8_t TfminiS_BuildFirmwareVersionQuery(
     command[2] = TFMINI_S_COMMAND_ID_VERSION;
     command[3] = TfminiS_Checksum(command, 3U);
     return TFMINI_S_VERSION_QUERY_BYTES;
+}
+
+uint8_t TfminiS_BuildI2cMeasurementQuery(
+    uint8_t command[TFMINI_S_I2C_QUERY_BYTES])
+{
+    if (command == NULL) {
+        return 0U;
+    }
+    command[0] = TFMINI_S_COMMAND_HEADER;
+    command[1] = TFMINI_S_I2C_QUERY_BYTES;
+    command[2] = TFMINI_S_COMMAND_ID_GET_DATA;
+    command[3] = 0x01U;
+    command[4] = TfminiS_Checksum(command, 4U);
+    return TFMINI_S_I2C_QUERY_BYTES;
+}
+
+uint8_t TfminiS_BuildSetI2cCommand(
+    uint8_t command[TFMINI_S_SET_INTERFACE_BYTES])
+{
+    if (command == NULL) {
+        return 0U;
+    }
+    command[0] = TFMINI_S_COMMAND_HEADER;
+    command[1] = TFMINI_S_SET_INTERFACE_BYTES;
+    command[2] = TFMINI_S_COMMAND_ID_INTERFACE;
+    command[3] = 0x01U;
+    command[4] = TfminiS_Checksum(command, 4U);
+    return TFMINI_S_SET_INTERFACE_BYTES;
+}
+
+uint8_t TfminiS_BuildSaveSettingsCommand(
+    uint8_t command[TFMINI_S_SAVE_SETTINGS_BYTES])
+{
+    if (command == NULL) {
+        return 0U;
+    }
+    command[0] = TFMINI_S_COMMAND_HEADER;
+    command[1] = TFMINI_S_SAVE_SETTINGS_BYTES;
+    command[2] = TFMINI_S_COMMAND_ID_SAVE;
+    command[3] = TfminiS_Checksum(command, 3U);
+    return TFMINI_S_SAVE_SETTINGS_BYTES;
 }

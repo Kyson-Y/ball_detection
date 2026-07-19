@@ -253,7 +253,7 @@ static bool DisplayTask_TryBeginIoWindow(void)
     TickType_t start_tick = xTaskGetTickCount();
 
     for (;;) {
-        if (SerialTx_TryBeginQuietWindow()) {
+        if (SerialTx_TryBeginPriorityQuietWindow()) {
             g_display_task_diag.io_window_acquired_count++;
             return true;
         }
@@ -300,6 +300,7 @@ void DisplayTask_Init(void)
 void DisplayTask_Entry(void *context)
 {
     uint8_t consecutive_deferred_count = 0U;
+    bool refresh_in_progress = false;
 
     (void) context;
     vTaskDelay(DISPLAY_POWER_UP_DELAY);
@@ -348,6 +349,7 @@ void DisplayTask_Entry(void *context)
                 g_display_task_diag.init_success_count++;
                 g_display_task_diag.online = 1U;
                 g_display_task_diag.address = Ssd1306_GetAddress();
+                refresh_in_progress = false;
             } else {
                 g_display_task_diag.online = 0U;
                 g_display_task_diag.address = 0U;
@@ -361,9 +363,13 @@ void DisplayTask_Entry(void *context)
         }
 
         if (Ssd1306_IsOnline() && (g_display_debug_refresh_enable != 0U)) {
-            bool refresh_success;
+            ssd1306_refresh_step_result_t refresh_result;
 
-            DisplayTask_Render();
+            if (!refresh_in_progress) {
+                DisplayTask_Render();
+                Ssd1306_BeginRefresh();
+                refresh_in_progress = true;
+            }
             if (!DisplayTask_TryBeginIoWindow()) {
                 delay_ticks = DisplayTask_GetDeferredDelay(
                     &consecutive_deferred_count);
@@ -372,19 +378,23 @@ void DisplayTask_Entry(void *context)
                 vTaskDelay(delay_ticks);
                 continue;
             }
-            consecutive_deferred_count = 0U;
-            refresh_success = Ssd1306_Refresh();
+            refresh_result = Ssd1306_RefreshStep();
             SerialTx_EndQuietWindow();
-            if (refresh_success) {
+            consecutive_deferred_count = 0U;
+            if (refresh_result == SSD1306_REFRESH_STEP_COMPLETE) {
+                refresh_in_progress = false;
                 g_display_task_diag.refresh_success_count++;
                 g_display_task_diag.online = 1U;
                 delay_ticks = DISPLAY_ONLINE_PERIOD;
-            } else {
+            } else if (refresh_result == SSD1306_REFRESH_STEP_FAILED) {
+                refresh_in_progress = false;
                 g_display_task_diag.refresh_fail_count++;
                 g_display_task_diag.online = 0U;
                 g_display_task_diag.address = 0U;
                 g_display_task_diag.offline_count++;
                 delay_ticks = DISPLAY_RETRY_PERIOD;
+            } else {
+                delay_ticks = DISPLAY_IO_WINDOW_POLL_PERIOD;
             }
         } else if (Ssd1306_IsOnline()) {
             consecutive_deferred_count = 0U;
