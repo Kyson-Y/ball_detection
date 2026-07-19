@@ -2,19 +2,83 @@
 
 ```yaml
 handoff_schema: 1
-updated_at: 2026-07-16T18:38:00+08:00
+updated_at: 2026-07-19T16:33:35+08:00
 updated_by: Codex
 status: complete
 ```
+
+## 0.000 当前任务：15.9 V 工况 PID 网页实测
+
+- 当前板上为 Profile ID 5 / `MG513X-4S v11`，母线以用户表测 `15.9 V` 为准；
+  PB17 分压链路仍未验收，未启用电压自动补偿。
+- 默认 PID 已固化为 `Kp=6`、`Ki=8`、`Kd=0`。前馈由实测稳态总 PWM 回归为
+  左 `388.5 + 1.93*rpm`、右 `375 + 2.70*rpm`；升速目标斜坡 150 rpm/s，
+  降速目标斜坡独立为 90 rpm/s。
+- 用户 CSV 的主要问题是两次 `10 rpm` 起步峰值 20.04/21.86 rpm，以及右轮运行中
+  `0 -> 60 rpm` 峰值 69 rpm。独立轮启动恢复和助推退出跟踪修复后，v9 完整复测中
+  `10 rpm` 两次峰值均为 12.43 rpm，右轮 `0 -> 60` 峰值 61.71 rpm、t90 260 ms。
+- 最终 `Kp=6/Kd=0` A/B：`30 -> 60` t90 320/190 ms、峰值 61.82/62.16 rpm；
+  `60 -> 30` t90 550/450 ms、最低 27.10/27.00 rpm、尾段 29.99/30.30 rpm；
+  `30 -> 70` t90 300/250 ms、峰值 71.46/72.00 rpm、尾段 70.04/70.10 rpm。
+- 70 rpm 稳态积分由旧 CSV 约 `+38/+47 permille` 降至 `+1.1/-4.1 permille`。
+  `Kd=0.1` 未改善右轮下冲且把左轮 `30 -> 60` t90 从 320 ms 拖到 380 ms，已拒绝。
+- 速度模式停机后的 telemetry 继续保持 rpm/PWM 语义；原先约 `278/-70 rpm` 的假尖峰已消失。
+- Keil App 0 Error / 0 Warning；12 V v5 与 4S v11 Profile 分支均通过 ArmClang 编译检查。
+  最终 HEX SHA-256 为 `E9E9EE2756116538987D83AABDC3DDAB306ECE5596BA39A0C73B5E98E622F839`；
+  有线 CMSIS-DAP `2b5d6f2a`、500 kHz program/verify/reset 通过。
+- 最终冷启动 telemetry 为 apply sequence 0、`6/8/0`、目标/速度/PWM `0/0`，
+  Health active/sticky/deadline 为零，`ActuatorOutputPermitted=0`。
+- 主机链路仍受红外地址切换耦合影响：最终 Kp A/B 有 38 个主机 CRC 错误；
+  设备端控制周期、Health 和停机输出正常。该串口硬件问题未由 PID 修改掩盖。
+- 后续仍需落地直线、带载扰动、电流、温升和电池压降验收；当前结论只覆盖架空轮组。
+- 详细证据：`docs/worklogs/2026-07-19_513x_4s_pid_web_retune_15v9.md`。
+
+## 0.00 最新任务：513X-4S PID 实机调参
+
+- 当前板上已烧录 `MG513X-4S v4`，Profile ID 5；默认 PID 已持久化为 `Kp=4`、`Ki=10`、`Kd=0`。
+- 电机 Profile、断言和调参记录已提交为 `294893d tune: calibrate 513x 4s speed pid`，尚未 push。
+- `30->70 rpm`：t90 570/580 ms，峰值 71.679/71.150 rpm，尾段 70.004/70.059 rpm。
+- `70->30 rpm`：t90 620/620 ms，下冲 8.84%/4.29%，尾段 30.09/30.32 rpm。
+- `Ki=12/14` 和 `Kd=0.1` 已实测拒绝；`Ki>=12` 会放大降速下冲，D 项没有一致收益。
+- Keil App 0 Error / 0 Warning；HEX `6642AE8A449EDFA9C6FA09C44501B7B458E3814838A417242089BD2E4715ADF8` 已用 `2b5d6f2a`、500 kHz 烧录/校验/复位。
+- 冷启动遥测确认 Profile v4、apply sequence 0、默认 `4/10/0`，左右目标/转速/PWM 为 0，`ActuatorOutputPermitted=0`，Health active/sticky/deadline 为 0。
+- 主机 UART 仍受 125 Hz 红外地址切换耦合影响而有 CRC/gap；设备端控制时序和 drop/overflow 正常。落地负载、直线同步、电流和温升仍未验收。
+- 原始数据在 `tmp/pid-live-*`；摘要见 `docs/worklogs/2026-07-19_513x_4s_pid_tuning.md`。
+
+## 0.0 最新任务：513X 更换 4S 电池
+
+- 原 `MG513X v5` 12 V Profile 保留为 ID 2；当前板上为独立 `513X-4S v3`，Profile ID 5。
+- 旧参数在 4S 下下发 30 rpm 后约为左 37.1、右 35.1 rpm，左右积分均卡在 -90 permille，确认前馈失配。
+- 4S 最终参数：启动 600 permille、最大 650 permille、Kp/Ki/Kd=3/8/0；左前馈 `409 + 1.09*rpm`，右前馈 `401 + 1.62*rpm`。
+- 最终独立 30 rpm 尾段 30.865/30.111 rpm，PWM 449.57/475.25，积分 +10.42/+25.91；停机后输出为零。
+- 最终 30->70 rpm：t90 670/600 ms，峰值 73.286/71.143 rpm，70 rpm 尾段 70.129/70.059 rpm，积分 +42.88/+68.26；Health、deadline、DMA stall、encoder late、输出残留均为零。
+- 最终 HEX SHA-256 `D110D1B5DAC13BEDFFC3744CF93412CA949CEF1FC9267713D58061968F7BF0F2`，Horco CMSIS-DAP v2 `2b5d6f2a` 以 500 kHz 烧录/校验/复位通过；UART 为 COM9 230400 8N1。
+- 组合运行时主机链路仍受红外 AD0/1/2 以 125 Hz 切换的电气耦合影响：最终阶跃 40 CRC/40 gap，最终 30 rpm 为 63/63；设备端传输计数与 Health 仍为零。未修硬件前不得宣称串口链路生产可用。
+- 电池实际电压、负载电流、压降和温升未测；4S 超过 70 rpm、落地负载及直线同步未验收。
+- 详细记录：`docs/worklogs/2026-07-18_513x_4s_battery_validation.md`。
+
+## 0. 最新任务：八路红外灰度接入
+
+- 513X 已独立提交为 `c08fa3d feat: add 513x motor control profile`，尚未 push。
+- PID 网页任务暂停；相关未提交文件保持原样，不删除、不混入灰度任务。
+- 灰度板接线：`OUT->PA26/ADC0_CH1`、`AD0->PA27`、`AD1->PA24`、`AD2->PA25`，EN/ERR 悬空；用户确认 OUT 不超过 3.3 V。
+- 新增 `bsp_reflectance` 非阻塞扫描和一次掩码地址写入；最终每通道稳定 4 ms，完整八路 31.25 Hz，UART type 8 为 36 B payload 且每两轮发送一次。
+- 串口静态环形缓冲由 1024 B 扩到 2048 B；实测峰值仍为 1020 B，保留约一半余量。
+- 全量构建 0 Error / 0 Warning；最终 HEX SHA-256 `9EB459E3B1EE6FB0E52DF82936F4EE975178ECB4414ADCC9F676404B13814E16`，无线 DAP 500 kHz program/fast verify/reset 通过。
+- 扫描频率测试覆盖 12.5、15.625、20.833、31.25、62.5 和 125 Hz。所有档位设备端 ADC timeout/incomplete/deadline/Health/drop 为零，电机输出为零。
+- 无线 COM7 的 CRC/gap 会随高频地址切换总体增加；125 Hz 即使原始遥测仅 1 Hz，30 秒仍有 21 CRC/29 gap，因此不保留。
+- 最终 31.25 Hz / 遥测 15.625 Hz：30 秒 3050 Control、476 Reflectance；Control 99.934 Hz、scan 31.25 Hz；2 CRC/3 gap。最新八路 `[267,1065,203,46,83,102,913,1029]`。
+- 31.25 Hz 是当前无线链路下的性能折中，不是严格零误码上限；下一步需用有线 UART 或 AD0/1/2 串联阻尼后复测 62.5/125 Hz。
+- 详细证据见 `docs/worklogs/2026-07-17_reflectance_bringup.md` 和 `tmp/reflectance-30s`。
 
 ## 1. 权威位置
 
 ```text
 唯一正式工程：E:\ECHO
-开发 worktree：C:\Users\Auror\ECHO-phase2a-work
-当前 branch：refs/heads/phase-2a-at8236-chassis-encoder
+开发 worktree：C:\Users\Auror\ECHO-513a-work
+当前 branch：refs/heads/codex/513a-motor-bringup
 起始 HEAD：4b1a3dbef3c96b1b627c90d3c10566e3c6a0ec2f
-当前 HEAD：本文件所在的 Phase 2A 阶段提交
+当前 HEAD：351c43e
 已验收基线：refs/tags/phase-1f-operability-diagnostics
 origin/main：4b1a3dbef3c96b1b627c90d3c10566e3c6a0ec2f / Phase 1F，已 push
 origin/phase-2a-at8236-chassis-encoder：本文件所在的 Phase 2A 阶段提交，已 push
@@ -58,10 +122,10 @@ origin/phase-2a-at8236-chassis-encoder：本文件所在的 Phase 2A 阶段提�
 - RTOS assert/malloc/stack/fatal 路径已接紧急双低钩子；安全 PWM 版本已 0/0 构建和烧录，未上 VM。
 - 安全 PWM 版本已烧录并完成左右正负 5%/200 ms 无动力逻辑点动，四次均 20 active 帧后自动归零。
 - 参数协议在命令路由重构后完成 `kp 1.0 -> 1.1 -> 1.0` 回归。
-- 一套 `motor_profile` 已覆盖 MG370 与 513X 占位，未复制 BSP、未增加引脚、禁止运行时切换。
+- 一套 `motor_profile` 已覆盖 MG370 与 513A 占位，未复制 BSP、未增加引脚、禁止运行时切换。
 - MG370 v1 已填入确认数据；左轮 x4/+1/68,028，右轮 x1/-1/17,007，左右电机输出符号保持待定 0。
 - 100 Hz 输出轴 RPM 诊断和 1 Hz Profile telemetry frame type 7 已接入。
-- 513X 选择已由 ArmClang 负向测试确认产生明确编译错误。
+- 513A 选择保留编译锁；旧 513X 负向测试只证明锁定机制，重命名后需重新验证锁定文案。
 
 ### 未开始
 
@@ -163,7 +227,7 @@ docs/worklogs/2026-07-15_phase2a_motor_profiles.md（未跟踪）
 - `ECHO_MOTOR_PROFILE_SELECTION` 是唯一型号选择宏，默认 MG370；OLED/UART 不提供运行时切换。
 - Profile 位于 service 层；BSP 继续只处理固定引脚和原始电气量。
 - 未确认 Profile 字段为 0 且有效位清除；现有安全点动可用，闭环归一化输出保持锁定。
-- 513X 缺少额定电压、堵转电流、减速比、编码器接口/电平/PPR，选择时必须编译失败。
+- 513A 缺少额定电压、堵转电流、减速比、编码器接口/电平/PPR，选择时必须编译失败。
 - 未接的 QEI 输入会浮空；右轮单模块板测期间左轮未接导致 issue 16，不属于右轮 ISR late。
 - PA29/PA30/PB6/PB7 不是 5 V tolerant；D153B 编码器接口没有电平转换，直连前必须测量并降压。
 - 左右轮不是控制主从关系；左轮只作为第一只标定轮，整车前进时两轮统一为正。
@@ -201,7 +265,7 @@ docs/worklogs/2026-07-15_phase2a_motor_profiles.md（未跟踪）
 | 参数协议回归 | passed | `kp 1.0 -> 1.1 -> 1.0`，首次 ACK applied，CRC/格式错误 0 |
 | 最终静止收尾 | passed | 509 Control / 5 Health；100/1 Hz；CRC/gap/deadline/drop/I2C/active/sticky=0；output permitted=0 |
 | MG370 Motor Profile 构建 | passed | FreeRTOS/App 0/0；Code=58152，ZI=16644；HEX SHA-256 `45D3035850AC9460232A75051FA1958F7F907187400E1C048274D1920F73CBC0` |
-| 513X 选择门禁 | passed | ArmClang 预期 1 error；错误列出额定电压、堵转电流、减速比、接口、电平、PPR |
+| 513A 选择门禁 | pending recheck | 旧 513X 锁定机制已通过；重命名后的错误文案待重新构建确认 |
 | Profile telemetry fixture | passed | type 7 / 52 B；MG370 v1、68,028/17,007、+1/-1、x4/x1；CRC/unknown=0 |
 | 2026-07-16 烧录前静态采集 | attention | 309 Control / 3 Health，100/1 Hz，左右编码器增量全 0，output permitted=0；旧固件 OLED offline、I2C error=1693、active/sticky=`0x00009800`，新固件复位后必须复核 |
 | Motor Profile 烧录 | passed | VM 断电；61,480 B 读回 SHA-256 `D360C84932F44D8E3C11590AC2B9471AA5A2D25CE1E41B63A8886F705034B6E0` 一致；reset run |
@@ -273,9 +337,9 @@ docs/worklogs/2026-07-15_phase2a_motor_profiles.md（未跟踪）
 
 - GMR 编码器 500 PPR 位于电机轴还是输出轴、是否已含 x4 仍未确认。
 - GMR E1A/E1B 的高电平和输出类型未确认，禁止直接连接非 5 V tolerant 的 PA29/PA30。
-- 轮径、轮距、左右安装朝向和 513X 完整参数未冻结。
+- 轮径、轮距、左右安装朝向和 513A 完整参数未冻结。
 - MG370 左右 `motor_output_sign`、起转/最大 PWM、速度/加速度限制、堵转保护和 PID 未冻结；closed loop 锁定。
-- 513X 关键电气与编码器参数未确认，当前只能保留占位并编译锁定。
+- 513A 关键电气与编码器参数未确认，当前只能保留占位并编译锁定；513B 是未来另一套硬件。
 - 未接 PA29/PA30 会使左 QEI 输入浮空；联合测试必须重新接左编码器或设计明确的未接通道管理。
 - CPU debug halt 期间不能依赖软件超时归零；首次带 VM 点动禁止断点/Watch，必须使用限流电源和物理断电。
 - 实测 OpenOCD 无显式 halt 的 RAM 写入也会使本目标重启；电机命令只允许走 UART 安全帧。
@@ -353,3 +417,132 @@ docs/worklogs/2026-07-15_phase2a_motor_profiles.md（未跟踪）
 - 松手后 100 ms 达峰值 `67.384 rpm`，超调 `12.31%`；820 ms 内进入并持续保持目标 ±3%，PWM 200 ms 内回到基线 ±5 permille。相比负载相近的 v12，超调由 `17.60%` 降至 `12.31%`。
 - 最终静止收尾通过：512 Control / 5 Health / 5 Profile，100/1/1 Hz；CRC/gap/deadline/drop/I2C/active/sticky/encoder late 全零，`ActuatorOutputPermitted=0`。
 - 精确下一步：轮组落地后复测电流、温升、直线同步、带载抗扰和 120 rpm 上限；架空 PI 调试不再继续为手压工况加大控制强度。
+
+## 16. 2026-07-17 MG513X 513A 当前状态
+
+- 用户指定正式调试 `513A`，产品为 MG513X、额定 12 V；图片资料给出额定电流 0.36 A、
+  堵转电流 3.2 A、减速比 1:28、空载约 370 rpm、额定约 300 rpm。
+- 用户纠正编码器为 GMR。当前 Profile 按 500 PPR、3.3 V、AB 相处理；理论输出轴计数暂定
+  左 x4 `56000`、右 x1 `14000`，标记为 provisional，等待实测多圈校正。
+- 513A 只开放最高 30%、最长 1000 ms 的有界电气点动；速度 PID、起转 PWM、速度/加速度和
+  堵转阈值均未冻结，`closed_loop_ready=0`。
+- 调试串口已从 UART1 PA8/PA9 迁移到无线从机所在的 UART0 PA10/PA11、230400、DMA_CH3；
+  电机 PWM/编码器引脚保持与 MG370 完全相同。
+- FreeRTOS full rebuild 与 UART1 App full rebuild均为 0 Error / 0 Warning；UART0 迁移后 App build
+  仍为 0 Error / 0 Warning，Code=65200、RO=3352、RW=28、ZI=17020，HEX SHA-256
+  `1C052546CA14B337AE353F41C701DCF35FDC67D1916EB476810CE84D5ABA1C7F`。
+- `flash_echo.ps1` 已增加 `-AdapterSerial/-AdapterSpeedKhz`，双 DAP 时明确选择无线探针
+  `2dc1718e`。
+- 用户补接 nRESET 后，普通 SWD attach 恢复；Cortex-M0+、4 breakpoint、2 watchpoint 和 PC 读取通过。
+- 513A 固件已通过无线 DAP 500 kHz 烧录。快速 CRC verify 失败后执行 68584 B 完整回读，SHA-256
+  `B9DF4CB5B0467CC80B79B3240CA52820D9A38E29F7CEA582E79D2FF1173BFFEA6` 一致并 reset run。
+- COM7 5 秒静态板测：512 Control、5 Health、5 Profile，100/1/1 Hz；Profile ID 2、GMR 500 PPR、
+  CPR 56000/14000、ActuatorTestReady=1、OutputLocked=0；左右 512 个静止 delta 全 0，Health 全 0，
+  OLED online，ActuatorOutputPermitted=0。
+- 双轮前进极性依次执行 10%/200 ms、20%/500 ms、30%/1000 ms，随后执行反向 30%/1000 ms；
+  四次均 ACK、active frame 数准确、自动归零，CRC/gap/deadline/I2C/active/sticky 全 0。
+- 四次点动两路编码器绝对计数总和都为 0。最终 5 秒静止为 513 Control/5 Health/5 Profile，
+  左右计数仍为 0、Health 全 0、ActuatorOutputPermitted=0。
+- 当前阻塞是现场现象分类：需要用户确认电机是完全无动作、仅响/抖动，还是实际转动但编码器无计数。
+  在此确认前不提高超过 30% 的占空比，也不解锁速度闭环。
+
+## 17. 2026-07-17 MG513X 513A power bring-up superseding section 16
+
+- User confirmed the motor moves from a direct 3.3 V supply. The no-motion result
+  at 50% was therefore not a motor or gearbox failure.
+- 513A profile is now version 3 with an electrical jog limit of 650 permille
+  (65%); duration limit remains 1000 ms and closed-loop control remains locked.
+- Full rebuild passed with 0 errors and 0 warnings. HEX SHA-256:
+  `AB798F018142D05810C7FA2AB726C68A7F8B01F60099A204A4ACE3B4D1271853`.
+- Wireless DAP programming at 500 kHz passed; COM7 static capture reports
+  Profile v3, GMR 500 PPR, CPR 56000/14000, and clean Health/CRC/timing.
+- Left +650 and -650 permille single-motor pulses both produced encoder response.
+- Dual motor forward polarity (left +650, right -650) passed at 500 ms and
+  1000 ms. The 1000 ms run produced 100 active frames, clean Health/CRC/gap/
+  deadline telemetry, and automatic output zeroing. Active-window averages were
+  approximately 65.3 rpm left and 65.7 rpm right; final 200 ms approximately
+  72.3 rpm left and 71.0 rpm right.
+- Evidence and detailed calculations are recorded in
+  `docs/worklogs/2026-07-17_phase2a_513x_motor_bringup.md`.
+
+## 18. 2026-07-17 model correction: current hardware is 513X
+
+- The user corrected the hardware identity: every test previously labeled
+  513A in sections 16-17 belongs to the MG513X / `513X` profile.
+- Profile IDs are now MG370=1, 513X=2, 513A=3, and 513B=4. The active board is
+  513X v4. 513A and 513B are independent compile-locked placeholders and must
+  not inherit 513X electrical, encoder, startup, or PID values.
+- The final 513X HEX SHA-256 is
+  `EA016F7F9D6A9B093C978E37359AD7DED31EC9FCB172D4B4D9D7871BEADBA1F9`.
+  Wireless DAP programming used 500 kHz; byte-for-byte readback passed after
+  target CRC verification was unavailable.
+- COM7 static telemetry reports ProfileId=2, Model=513X, ProfileVersion=4,
+  GMR 500 PPR, provisional CPR 56000/14000, and clean Health.
+- Forward electrical polarity is left positive and right negative. Encoder
+  raw forward signs are left positive and right negative; profile normalization
+  makes both forward speeds positive.
+- Dual start sweep: 55% and 56% only twitched, 57% was asymmetric, 58% started
+  with little margin, and 60% reliably started both motors. The profile uses
+  600 permille startup and a 650 permille output ceiling.
+- Closed-loop defaults are Kp=3, Ki=8, Kd=0 with a 70 rpm software limit.
+  ParameterService now restores PID defaults from the active Motor Profile.
+- Closed-loop validation passed at 5, 10, 30, +60, -60, and 70 rpm. The
+  30->70 and 70->30 step tests passed. The final 70 rpm / 30 s run produced
+  3000/3000 frames at 70.014/70.012 rpm with zero CRC, gaps, deadline misses,
+  encoder-late events, active issues, or sticky issues, then auto-zeroed.
+- Correct worklog:
+  `docs/worklogs/2026-07-17_phase2a_513x_motor_bringup.md`.
+- With wheels installed and suspended, 30->70 rpm passed at t90 280/250 ms
+  with 2.59%/2.89% overshoot; 70->30 rpm passed at t90 710/520 ms and settled
+  at 29.999/30.036 rpm.
+- A valid 60 rpm left-wheel load disturbance reduced the left wheel to
+  18.853 rpm and saturated output at 650 permille. The right wheel remained
+  near 59.947 rpm. Release recovery was 230 ms to target +/-3%, 200 ms for PWM
+  to baseline +/-5, with 5.01% overshoot and clean Health/transport timing.
+- Early right-wheel disturbance captures lacked right-PWM telemetry and were
+  not accepted. Control telemetry now appends `right_auxiliary` while retaining
+  legacy 40-byte parser compatibility.
+- Isolated right electrical drive (-650 permille, 500 ms) produced left=0 and
+  right=8,869 absolute encoder counts, so channel mapping is correct. The user
+  visibly observed right-wheel slowdown while the motor-side encoder remained
+  near 60 rpm; inspect hub/coupler, tire/rim, output attachment, and gearbox
+  slip before any straight-line claim.
+- The repeated right-wheel disturbance with dual-PWM telemetry is valid and
+  supersedes that preliminary mechanical-slip suspicion: baseline 59.996 rpm /
+  631.6 permille, minimum 27.857 rpm, maximum 650 permille, 150 ms speed and
+  PWM recovery, 5.71% overshoot. The untouched left wheel averaged 59.956 rpm.
+- The user ended the 513X stage on 2026-07-17. Board output is zero. 513A and
+  513B remain separate future stages with compile-locked profiles.
+
+## 19. 2026-07-19 supply-voltage ADC validation
+
+- The active board now contains the supply ADC build. App full rebuild passed
+  with 0 errors and 0 warnings; HEX SHA-256 is
+  `6BC7F10A6E4A4C1EC118E01DF2B7931DBE409B945A5F398E0238AAC5B5DB2E2C`.
+- Supply ADC is `PB17 / ADC1_CH4`. The intended divider is 100 kohm high side,
+  22 kohm low side, with 100 nF from PB17 to GND. A 16.8 V full 4S battery
+  should place about 3.03 V on PB17. Direct battery-to-PB17 connection is
+  prohibited.
+- Firmware sampling is 100 Hz with a 1/8 IIR filter; UART frame type 9 is sent
+  at 10 Hz. The 10-second COM9 capture received 102 voltage frames, reported
+  100/10 Hz sample/telemetry rates, and had zero ADC conversion timeouts.
+- The observed raw range was 657-803 and the latest filtered PB17 voltage was
+  583 mV, yielding an invalid 3.235 V battery estimate. Treat the physical
+  divider as not connected or incorrectly wired until proven with a meter.
+- The user then connected a nominal 1.5 V cell directly to PB17 through the
+  advised 10 kohm safety resistor. The valid retry was stable: 102 voltage
+  frames, raw 1667-1687, average raw 1678.824, latest filtered ADC input 1351
+  mV, and zero conversion timeouts. This confirms the ADC path. The reported
+  7.49-7.53 V battery value is the expected 5.545x divider back-calculation and
+  is not the cell voltage.
+- Device-side Health was clean: no deadline miss, publish/transport/DMA drop,
+  active issue, or sticky issue. `ActuatorOutputPermitted=0`; all sampled motor
+  targets and outputs remained zero.
+- COM9 still showed 29 host CRC/gap events in the 10-second mixed telemetry
+  capture. This matches the existing UART signal-integrity limitation and does
+  not indicate an ADC conversion failure.
+- Next action: power down, fit/verify the 100k/22k/100nF divider and common
+  ground, measure PB17 <= 3.3 V before reconnecting it to the MCU, then repeat
+  the static capture together with a multimeter battery reading. Calibration
+  factor is `multimeter_mv / adc_reported_mv`.
+- No motor command was sent. No files were staged, committed, or pushed.

@@ -100,6 +100,7 @@ int16_t WheelSpeedController_Update(wheel_speed_controller_t *controller,
     float target_rpm, float measured_rpm, float period_s)
 {
     float target_delta;
+    float target_slew_rpm_per_s;
     float output_delta;
     float target_magnitude;
     float target_sign;
@@ -133,9 +134,23 @@ int16_t WheelSpeedController_Update(wheel_speed_controller_t *controller,
         controller->load_release_armed = 0U;
         controller->load_release_decay_active = 0U;
     }
-    target_delta = controller->config.target_slew_rpm_per_s * period_s;
-    controller->ramped_target_rpm = WheelSpeedController_RateLimit(
-        controller->ramped_target_rpm, target_rpm, target_delta);
+    target_slew_rpm_per_s = controller->config.target_slew_rpm_per_s;
+    if (controller->ramped_target_rpm * target_rpm < 0.0f) {
+        target_slew_rpm_per_s =
+            controller->config.target_slew_down_rpm_per_s;
+        target_delta = target_slew_rpm_per_s * period_s;
+        controller->ramped_target_rpm = WheelSpeedController_RateLimit(
+            controller->ramped_target_rpm, 0.0f, target_delta);
+    } else {
+        if (WheelSpeedController_Abs(target_rpm) <
+            WheelSpeedController_Abs(controller->ramped_target_rpm)) {
+            target_slew_rpm_per_s =
+                controller->config.target_slew_down_rpm_per_s;
+        }
+        target_delta = target_slew_rpm_per_s * period_s;
+        controller->ramped_target_rpm = WheelSpeedController_RateLimit(
+            controller->ramped_target_rpm, target_rpm, target_delta);
+    }
 
     if (WheelSpeedController_Abs(controller->ramped_target_rpm) < 0.01f) {
         controller->ramped_target_rpm = 0.0f;

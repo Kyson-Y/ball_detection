@@ -16,6 +16,7 @@ typedef struct {
     float feedforward_gain_permille_per_rpm;
     float measurement_filter_alpha;
     float target_slew_rpm_per_s;
+    float target_slew_down_rpm_per_s;
     float output_slew_up_permille_per_s;
     float output_slew_down_permille_per_s;
 } wheel_speed_controller_config_t;

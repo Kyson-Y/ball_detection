@@ -1,6 +1,49 @@
 # ECHO 当前状态
 
-最后核对日期：2026-07-16（Asia/Shanghai）
+最后核对日期：2026-07-19（Asia/Shanghai）
+
+## 0. 八路红外灰度接入
+
+- 513X 已提交为 `c08fa3d`，尚未 push；PID 网页任务暂停且未删除。
+- 灰度板固定接线为 `OUT->PA26/ADC0_CH1`、`AD0->PA27`、`AD1->PA24`、`AD2->PA25`；用户确认 OUT 不超过 3.3 V。
+- 新增非阻塞八路原始值扫描和 UART type 8 telemetry；最终完整扫描 31.25 Hz、原始遥测 15.625 Hz，未加入黑白标定或循迹控制。
+- 全量构建 0 Error / 0 Warning；最终 HEX `9EB459E3B1EE6FB0E52DF82936F4EE975178ECB4414ADCC9F676404B13814E16` 已烧录并快速校验通过。
+- 频率探索覆盖 12.5、15.625、20.833、31.25、62.5 和 125 Hz。设备端 ADC timeout/incomplete/deadline/Health 均为零；无线 COM7 错误率随高频地址切换总体上升。
+- 最终 31.25 Hz 的 30 秒测试：Control 99.934 Hz、Reflectance telemetry 15.592 Hz、2 CRC/3 gap；电机输出保持零。下一步用有线 UART 或地址线阻尼复核更高频率。
+- 详细证据见 `docs/worklogs/2026-07-17_reflectance_bringup.md`。
+
+## 0.1 513X PID 遥测网页更新
+
+- 开发 worktree `C:\Users\Auror\ECHO-513a-work` 已完成 PID 网页与 96 B Control telemetry 扩展，尚未合入 `E:\ECHO`。
+- 网页支持左右目标/实际轮速、左右总输出、左右 P/I/D/前馈曲线选择，20 s 同步窗口和暂停显示。
+- 网页支持共享 Kp/Ki/Kd 一次应用并逐项显示 ACK/应用序号，参数只写 RAM。
+- 网页支持左右独立 `-100..100 rpm` 持续速度；关闭网页不自动停机，只有 `0/0 rpm`、故障或复位停止。
+- 513X Profile v5 最终固件已烧录并静态板测通过；非零持续运动验证 deferred。
+- 验证证据见 `docs/worklogs/2026-07-17_pid_telemetry_web_console.md`。
+
+## 0.2 513X-4S 15.9 V PID 网页复调
+
+- 当前板上为 Profile ID 5 / `513X-4S v11`；默认 PID 已持久化为
+  `Kp=6`、`Ki=8`、`Kd=0`，15.9 V 前馈为左 `388.5 + 1.93*rpm`、
+  右 `375 + 2.70*rpm`。升速目标斜坡为 150 rpm/s，降速独立为 90 rpm/s。
+- 用户 CSV 中两次 `10 rpm` 起步峰值为 20.04/21.86 rpm，右轮运行中
+  `0 -> 60 rpm` 峰值为 69 rpm。独立启动恢复和测量起点跟踪修复后，v9 完整复测的
+  `10 rpm` 峰值均为 12.43 rpm，右轮 `0 -> 60` 峰值 61.71 rpm、t90 260 ms。
+- 最终 `Kp=6` A/B：`30 -> 60` t90 320/190 ms、峰值 61.82/62.16 rpm；
+  `60 -> 30` t90 550/450 ms、最低 27.10/27.00 rpm；`30 -> 70` t90 300/250 ms、
+  峰值 71.46/72.00 rpm，尾段 70.04/70.10 rpm。
+- 前馈重拟合后 70 rpm 稳态积分由旧 CSV 约 `+38/+47 permille` 降到
+  `+1.1/-4.1 permille`。`Kd=0.1` 未改善右轮降速下冲且拖慢左轮升速，已拒绝。
+- 修复速度模式停机后 Control telemetry 字段退回原始编码器计数、网页仍按 rpm/PWM 绘制的
+  语义错误；最终停机曲线无虚假尖峰，最后 20 帧目标、速度、输出全零。
+- Keil App 0 Error / 0 Warning；最终 HEX
+  `E9E9EE2756116538987D83AABDC3DDAB306ECE5596BA39A0C73B5E98E622F839` 已通过
+  CMSIS-DAP `2b5d6f2a`、500 kHz 烧录、快速校验和复位。
+- 冷启动 apply sequence 0 即报告 `6/8/0`；Health active/sticky/deadline 为零，
+  `ActuatorOutputPermitted=0`。落地直线、带载、电流和温升仍未验收。
+- 主机 UART 仍受红外地址切换电气耦合影响；最终 Kp A/B 采集有 38 个主机 CRC 错误，
+  设备端 active/sticky/deadline 和输出收尾均正常。
+- 详细证据见 `docs/worklogs/2026-07-19_513x_4s_pid_web_retune_15v9.md`。
 
 ## 1. 权威仓库
 
@@ -23,7 +66,7 @@ start:    4b1a3db / refs/tags/phase-1f-operability-diagnostics
 
 Phase 2A 已开始。左右编码器无动力板测已通过；AT8236 默认零输出和 UART 一次性点动安全层
 已完成 FreeRTOS/App 0/0 构建、烧录回读校验及四方向 5%/200 ms 无动力逻辑 PWM 板测。
-共享底层的 MG370/513X 编译时 Motor Profile 已实现并完成 MG370 0/0 构建，但新 Profile 固件
+共享底层的 MG370/513A 编译时 Motor Profile 已实现并完成 MG370 0/0 构建，但新 Profile 固件
 尚未烧录。物理 PWM 波形、带 VM 单轮点动、方向冻结、故障测试和连续运行尚未完成。
 
 ## 2. 必须保留的用户状态
@@ -81,7 +124,8 @@ Phase 1D 仓库没有保存原始串口日志或具体验收数字，后续仍�
 - 执行器命令固定为 CRC、双 magic、单电机、最高 10%、最长 500 ms；SystemTask 唯一写输出。
 - 电机型号由 `ECHO_MOTOR_PROFILE_SELECTION` 编译时选择；默认 MG370 v1，禁止 OLED 运行时切换。
 - MG370 每轮 Profile 固定左 x4/+1/68,028、右 x1/-1/17,007；电机输出符号和闭环限制仍待实测。
-- 513X 关键参数未确认，选择它会产生明确编译错误；不会生成可驱动固件。
+- 513A 关键参数未确认，选择它会产生明确编译错误；不会生成可驱动固件。另一套 513 电机
+  保留名称 `513B`，当前不共享或预填 513A 参数。
 
 ## 5. Phase 1F 最终构建与实测
 
@@ -178,3 +222,75 @@ quiet-window 门禁。这些维护不代表 Phase 2A 功能已经实现。
 - 最终静止收尾为 512 Control / 5 Health / 5 Profile，CRC/gap/deadline/drop/I2C/active/sticky/encoder late 全零，输出门禁为 0。
 - 当前测试命令已结束并自动归零。正式 `E:\ECHO` 仍未修改；未自动暂存、提交或 push。
 - 阶段状态：架空直流电机与编码器调试完成。电流、温升、落地负载、实际补偿、直线同步和带载速度上限 deferred 到后续阶段。
+
+## 11. 513X profile correction and validation (2026-07-17)
+
+- The newly tested motor was corrected from the temporary name 513A to 513X.
+- Active profile: ID 2, Model 513X, version 4. IDs 3 and 4 are reserved for
+  independent 513A and 513B profiles and remain compile-locked.
+- 513X uses GMR 500 PPR, provisional CPR 56000/14000, left/right forward motor
+  signs +1/-1, 600 permille startup, 650 permille maximum output, and a 70 rpm
+  software limit.
+- Closed-loop defaults are Kp=3, Ki=8, Kd=0 and are restored from the selected
+  profile after reset.
+- Final 70 rpm / 30 s validation passed at 70.014/70.012 rpm with 3000/3000
+  frames and clean CRC/gap/deadline/encoder-late/Health diagnostics.
+- Final HEX SHA-256:
+  `EA016F7F9D6A9B093C978E37359AD7DED31EC9FCB172D4B4D9D7871BEADBA1F9`.
+- Control telemetry now includes both left and right normalized PWM with legacy
+  40-byte control-frame parser compatibility.
+- Valid 60 rpm load tests passed on both wheels. Left load: minimum 18.853 rpm,
+  230 ms recovery, 5.01% overshoot. Right load: minimum 27.857 rpm, 150 ms
+  recovery, 5.71% overshoot. The untouched wheel stayed near 60 rpm in each run.
+
+## 12. 513X 4S battery profile (2026-07-18)
+
+- The original `MG513X v5` 12 V profile is preserved as profile ID 2. The active build now uses independent `513X-4S v3`, profile ID 5.
+- The old profile failed on 4S at a 30 rpm command: approximately 37.1/35.1 rpm with both integrators saturated at -90 permille.
+- The final 4S profile retains 600 permille startup and 650 permille maximum output, while steady feedforward is left `409 + 1.09*rpm` and right `401 + 1.62*rpm`.
+- Final 30 rpm tail mean is 30.865/30.111 rpm. Final 30 to 70 rpm step has t90 670/600 ms, peak 73.286/71.143 rpm, and 70 rpm tail mean 70.129/70.059 rpm.
+- All final device-side Health, deadline, DMA stall, encoder-late, and output-residue checks passed. The final HEX SHA-256 is `D110D1B5DAC13BEDFFC3744CF93412CA949CEF1FC9267713D58061968F7BF0F2`.
+- Host UART is not production-clean during combined motor and 125 Hz reflectance operation: 40 CRC/gap errors in the final step and 63 in the final 30 rpm run. Hardware damping and wiring correction remain required.
+- Details: `docs/worklogs/2026-07-18_513x_4s_battery_validation.md`.
+
+## 13. 4S supply-voltage ADC bring-up (2026-07-19)
+
+- Supply sensing is implemented on `PB17 / ADC1_CH4`, independently of the
+  reflectance input on `PA26 / ADC0_CH1`.
+- The required external network is battery positive -> `100 kohm` -> PB17,
+  PB17 -> `22 kohm` -> GND, and PB17 -> `100 nF` -> GND. Battery ground and
+  controller ground must be common. Never connect the 4S positive terminal
+  directly to PB17.
+- Firmware samples at 100 Hz, applies a 1/8 IIR filter, and publishes UART type
+  9 voltage telemetry at 10 Hz. The conversion formula is
+  `raw / 4095 * 3.3 * 122 / 22`.
+- Full App rebuild passed with 0 errors and 0 warnings. HEX SHA-256:
+  `6BC7F10A6E4A4C1EC118E01DF2B7931DBE409B945A5F398E0238AAC5B5DB2E2C`.
+  DAP programming at 500 kHz passed byte-for-byte Flash readback verification.
+- The first 10-second static capture received 102 voltage frames at 10 Hz and
+  confirmed a 100 Hz ADC sample rate with zero conversion timeouts, zero
+  deadlines, zero device-side drops, and actuator output disabled.
+- The measured PB17 input was only about 0.58 V, producing an invalid 3.17-3.39
+  V battery estimate. This is not a valid 4S reading and indicates that the
+  divider is absent, incorrectly wired, or not connected to the battery.
+- A subsequent direct low-voltage input test passed: a nominal 1.5 V cell
+  applied to PB17 through a 10 kohm safety resistor produced raw 1667-1687,
+  average raw 1678.824, and approximately 1.353 V at the ADC input. The 10-second
+  peak-to-peak input variation was approximately 16 mV, with zero conversion
+  timeouts. The displayed 7.50 V battery value is expected because firmware is
+  already configured for the future 100k/22k divider.
+- Final voltage accuracy remains uncalibrated until the divider is physically
+  verified and a simultaneous multimeter battery reading is supplied.
+- Detailed evidence: `docs/worklogs/2026-07-19_supply_voltage_adc_validation.md`.
+
+## 14. 513X-4S PID tuning (2026-07-19)
+
+- `513X-4S` Profile 已从 v3 更新为 v4，冷启动默认 PID 为 `Kp=4`、`Ki=10`、`Kd=0`；12 V `MG513X v5` 未修改。
+- 本次 Profile、断言和调参记录已提交为 `294893d`，尚未 push。
+- 双轮 `30->70 rpm` 的 t90 为 570/580 ms，峰值 71.679/71.150 rpm，尾段 70.004/70.059 rpm。
+- 双轮 `70->30 rpm` 的 t90 为 620/620 ms，下冲 8.84%/4.29%，尾段 30.09/30.32 rpm。
+- `Ki=12/14` 与 `Kd=0.1` 均经实机 A/B 后拒绝；继续增大积分会放大降速下冲。
+- Keil App 构建 0 Error / 0 Warning；HEX SHA-256 `6642AE8A449EDFA9C6FA09C44501B7B458E3814838A417242089BD2E4715ADF8` 已通过 CMSIS-DAP 烧录、校验和复位。
+- 冷启动遥测确认 Profile ID 5 / v4、默认 `4/10/0`、左右输出全零、Health active/sticky/deadline 全零。
+- 主机端仍有红外切换耦合造成的 CRC/gap；落地负载、直线同步、电流和温升 deferred。
+- 详细证据：`docs/worklogs/2026-07-19_513x_4s_pid_tuning.md`。

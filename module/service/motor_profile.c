@@ -7,7 +7,7 @@
 
 #define MOTOR_PROFILE_MG370_VERSION 13U
 #define MOTOR_PROFILE_513X_VERSION  5U
-#define MOTOR_PROFILE_513X_4S_VERSION 4U
+#define MOTOR_PROFILE_513X_4S_VERSION 11U
 
 #if ECHO_MOTOR_PROFILE_SELECTION == ECHO_MOTOR_PROFILE_MG370
 
@@ -52,7 +52,8 @@ static const motor_profile_t s_active_profile = {
     MOTOR_ENCODER_INTERFACE_GMR_AB,
     { 8.0f, 18.0f, 0.0f, 160.0f, 10.0f, 1.5f, 6000.0f, 900.0f,
       315.0f, 320.0f, 3.8f, 3.6f, 0.35f,
-      350.0f, 3000.0f, 1500.0f, 600U, 40U, 200U, 4.0f },
+      350.0f, 350.0f, 3000.0f, 1500.0f,
+      600U, 40U, 200U, 0.5f, 4.0f },
     {
         { 1, 1, 4U, 0U, 68028U },
         { -1, -1, 1U, 0U, 17007U }
@@ -102,7 +103,8 @@ static const motor_profile_t s_active_profile = {
     MOTOR_ENCODER_INTERFACE_GMR_AB,
     { 3.0f, 8.0f, 0.0f, 90.0f, 4.0f, 3.0f, 6000.0f, 650.0f,
       545.0f, 535.0f, 1.45f, 1.62f, 0.30f,
-      150.0f, 3000.0f, 3000.0f, 600U, 100U, 500U, 20.0f },
+      150.0f, 150.0f, 3000.0f, 3000.0f,
+      600U, 100U, 500U, 0.5f, 20.0f },
     {
         { 1, 1, 4U, 0U, 56000U },
         { -1, -1, 1U, 0U, 14000U }
@@ -151,9 +153,10 @@ static const motor_profile_t s_active_profile = {
     0U,
     0U,
     MOTOR_ENCODER_INTERFACE_GMR_AB,
-    { 4.0f, 10.0f, 0.0f, 90.0f, 4.0f, 3.0f, 6000.0f, 650.0f,
-      409.0f, 401.0f, 1.09f, 1.62f, 0.30f,
-      150.0f, 3000.0f, 3000.0f, 600U, 100U, 500U, 20.0f },
+    { 6.0f, 8.0f, 0.0f, 90.0f, 4.0f, 3.0f, 6000.0f, 650.0f,
+      388.5f, 375.0f, 1.93f, 2.70f, 0.30f,
+      150.0f, 90.0f, 3000.0f, 3000.0f,
+      600U, 10U, 500U, 0.25f, 20.0f },
     {
         { 1, 1, 4U, 0U, 56000U },
         { -1, -1, 1U, 0U, 14000U }
@@ -246,7 +249,12 @@ static bool MotorProfile_ClosedLoopFieldsAreValid(void)
             s_active_profile.speed_pid.output_limit_permille &&
         s_active_profile.speed_pid.boost_minimum_ms != 0U &&
         s_active_profile.speed_pid.boost_maximum_ms >=
-            s_active_profile.speed_pid.boost_minimum_ms;
+            s_active_profile.speed_pid.boost_minimum_ms &&
+        s_active_profile.speed_pid.boost_release_fraction > 0.0f &&
+        s_active_profile.speed_pid.boost_release_fraction <= 1.0f &&
+        s_active_profile.speed_pid.boost_release_rpm > 0.0f &&
+        s_active_profile.speed_pid.target_slew_rpm_per_s > 0.0f &&
+        s_active_profile.speed_pid.target_slew_down_rpm_per_s > 0.0f;
 }
 
 void MotorProfile_Init(void)

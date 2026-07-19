@@ -95,7 +95,7 @@ static int16_t ChassisActuator_SignedPermille(
 }
 
 static void ChassisActuator_PrimeTracking(
-    motor_wheel_t wheel, float target_rpm)
+    motor_wheel_t wheel, float target_rpm, float measured_rpm)
 {
     wheel_speed_controller_t *controller = &s_speed_controller[wheel];
     float magnitude = ChassisActuator_AbsFloat(target_rpm);
@@ -109,7 +109,12 @@ static void ChassisActuator_PrimeTracking(
     }
     WheelSpeedController_PrimeOutput(controller, feedforward);
     controller->integrator_permille = 0.0f;
-    controller->ramped_target_rpm = target_rpm;
+    if (!ChassisActuator_SameDirection(target_rpm, measured_rpm)) {
+        measured_rpm = 0.0f;
+    } else if (ChassisActuator_AbsFloat(measured_rpm) > magnitude) {
+        measured_rpm = target_rpm;
+    }
+    controller->ramped_target_rpm = measured_rpm;
     controller->requested_target_rpm = target_rpm;
 }
 
@@ -193,7 +198,8 @@ static float ChassisActuator_BoostReleaseRpm(float target_rpm)
 {
     const motor_speed_pid_config_t *config =
         MotorProfile_GetSpeedPidConfig();
-    float release_rpm = 0.5f * ChassisActuator_AbsFloat(target_rpm);
+    float release_rpm = config->boost_release_fraction *
+        ChassisActuator_AbsFloat(target_rpm);
 
     if (release_rpm < 1.0f) {
         release_rpm = 1.0f;
@@ -240,6 +246,8 @@ static void ChassisActuator_InitSpeedControllers(void)
     config.measurement_filter_alpha =
         profile->measurement_filter_alpha;
     config.target_slew_rpm_per_s = profile->target_slew_rpm_per_s;
+    config.target_slew_down_rpm_per_s =
+        profile->target_slew_down_rpm_per_s;
     config.output_slew_up_permille_per_s =
         profile->output_slew_up_permille_per_s;
     config.output_slew_down_permille_per_s =
@@ -377,8 +385,7 @@ void ChassisActuator_ForceSafe(chassis_actuator_stop_reason_t reason)
     g_chassis_actuator_diag.normalized_right_permille = 0;
     g_chassis_actuator_diag.left_target_deci_rpm = 0;
     g_chassis_actuator_diag.right_target_deci_rpm = 0;
-    g_chassis_actuator_diag.control_mode =
-        (uint8_t) CHASSIS_ACTUATOR_MODE_ELECTRICAL;
+    /* Keep the last mode so post-stop telemetry retains its field semantics. */
     g_chassis_actuator_diag.speed_phase =
         (uint8_t) CHASSIS_SPEED_PHASE_IDLE;
     g_chassis_actuator_diag.armed = 0U;
@@ -501,9 +508,9 @@ static bool ChassisActuator_UpdateSpeed(
         if (g_chassis_actuator_diag.boost_elapsed_cycles >=
                 minimum_boost_cycles && left_ready && right_ready) {
             ChassisActuator_PrimeTracking(
-                MOTOR_WHEEL_LEFT, left_target);
+                MOTOR_WHEEL_LEFT, left_target, left_measured_rpm);
             ChassisActuator_PrimeTracking(
-                MOTOR_WHEEL_RIGHT, right_target);
+                MOTOR_WHEEL_RIGHT, right_target, right_measured_rpm);
             g_chassis_actuator_diag.speed_phase =
                 (uint8_t) CHASSIS_SPEED_PHASE_TRACKING;
             g_chassis_actuator_diag.boost_complete_count++;
@@ -543,7 +550,7 @@ static bool ChassisActuator_UpdateSpeed(
                 s_recovery_active_mask &= (uint8_t) ~0x01U;
                 left_recovering = false;
                 ChassisActuator_PrimeTracking(
-                    MOTOR_WHEEL_LEFT, left_target);
+                    MOTOR_WHEEL_LEFT, left_target, left_measured_rpm);
             }
             if (right_recovering &&
                 ChassisActuator_SameDirection(
@@ -553,7 +560,7 @@ static bool ChassisActuator_UpdateSpeed(
                 s_recovery_active_mask &= (uint8_t) ~0x02U;
                 right_recovering = false;
                 ChassisActuator_PrimeTracking(
-                    MOTOR_WHEEL_RIGHT, right_target);
+                    MOTOR_WHEEL_RIGHT, right_target, right_measured_rpm);
             }
         }
 
@@ -613,11 +620,11 @@ static bool ChassisActuator_UpdateSpeed(
             }
             if ((s_recovery_active_mask & 0x01U) != 0U) {
                 ChassisActuator_PrimeTracking(
-                    MOTOR_WHEEL_LEFT, left_target);
+                    MOTOR_WHEEL_LEFT, left_target, left_measured_rpm);
             }
             if ((s_recovery_active_mask & 0x02U) != 0U) {
                 ChassisActuator_PrimeTracking(
-                    MOTOR_WHEEL_RIGHT, right_target);
+                    MOTOR_WHEEL_RIGHT, right_target, right_measured_rpm);
             }
             s_recovery_active_mask = 0U;
         }
@@ -696,6 +703,7 @@ void ChassisActuator_ServiceAtControlBoundary(
 {
     chassis_actuator_debug_request_t request;
     uint16_t cycles;
+    uint8_t retarget_start_mask;
     bool pending;
 
     g_chassis_actuator_diag.left_measured_rpm = left_measured_rpm;
@@ -744,6 +752,19 @@ void ChassisActuator_ServiceAtControlBoundary(
             return;
         }
 
+        retarget_start_mask = 0U;
+        if (g_chassis_actuator_diag.left_target_deci_rpm == 0 &&
+            request.left_electrical_permille != 0) {
+            retarget_start_mask |= 0x01U;
+            WheelSpeedController_Reset(
+                &s_speed_controller[MOTOR_WHEEL_LEFT]);
+        }
+        if (g_chassis_actuator_diag.right_target_deci_rpm == 0 &&
+            request.right_electrical_permille != 0) {
+            retarget_start_mask |= 0x02U;
+            WheelSpeedController_Reset(
+                &s_speed_controller[MOTOR_WHEEL_RIGHT]);
+        }
         s_continuous_speed = (request.duration_ms == 0U);
         cycles = s_continuous_speed ? 1U : (uint16_t) (
             (request.duration_ms + CHASSIS_ACTUATOR_CONTROL_PERIOD_MS - 1U) /
@@ -762,9 +783,14 @@ void ChassisActuator_ServiceAtControlBoundary(
         g_chassis_actuator_diag.continuous_speed =
             s_continuous_speed ? 1U : 0U;
         s_common_low_speed_cycles = 0U;
-        s_common_recovery_remaining = 0U;
+        s_common_recovery_remaining = (retarget_start_mask != 0U) ?
+            CHASSIS_ACTUATOR_RECOVERY_BOOST_CYCLES : 0U;
+        s_consecutive_failed_recoveries = 0U;
         s_recovery_candidate_mask = 0U;
-        s_recovery_active_mask = 0U;
+        s_recovery_active_mask = retarget_start_mask;
+        if (retarget_start_mask != 0U) {
+            g_chassis_actuator_diag.recovery_boost_count++;
+        }
         s_crawl_drive_mask = 0x03U;
         memset(s_crawl_kick_remaining, 0,
             sizeof(s_crawl_kick_remaining));

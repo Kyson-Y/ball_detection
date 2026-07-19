@@ -69,11 +69,13 @@ typedef struct {
     float right_feedforward_gain_permille_per_rpm;
     float measurement_filter_alpha;
     float target_slew_rpm_per_s;
+    float target_slew_down_rpm_per_s;
     float output_slew_up_permille_per_s;
     float output_slew_down_permille_per_s;
     uint16_t recovery_boost_permille;
     uint16_t boost_minimum_ms;
     uint16_t boost_maximum_ms;
+    float boost_release_fraction;
     float boost_release_rpm;
 } motor_speed_pid_config_t;
 

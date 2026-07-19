@@ -35,6 +35,7 @@ void SystemTask_Entry(void *context)
         uint32_t start_us;
         uint32_t finish_us;
         bool schedule_resynchronized;
+        bool speed_telemetry;
         uint32_t encoder_period_us;
         bsp_encoder_sample_t left_encoder;
         bsp_encoder_sample_t right_encoder;
@@ -83,9 +84,9 @@ void SystemTask_Entry(void *context)
             g_rtos_diag.queue_send_count++;
         }
 
-        if (g_chassis_actuator_diag.control_mode ==
-                (uint8_t) CHASSIS_ACTUATOR_MODE_SPEED &&
-            g_chassis_actuator_diag.output_permitted != 0U) {
+        speed_telemetry = g_chassis_actuator_diag.control_mode ==
+            (uint8_t) CHASSIS_ACTUATOR_MODE_SPEED;
+        if (speed_telemetry) {
             sample.setpoint =
                 (float) g_chassis_actuator_diag.left_target_deci_rpm * 0.1f;
             sample.measurement = g_motor_profile_diag.left_output_rpm;
@@ -142,16 +143,18 @@ void SystemTask_Entry(void *context)
         sample.jitter_us = g_rtos_diag.system_last_jitter_us;
         sample.deadline_miss_count =
             g_rtos_diag.system_deadline_miss_count;
-        sample.flags = TELEMETRY_CONTROL_FLAG_LEFT_ENCODER_RAW |
-            TELEMETRY_CONTROL_FLAG_RIGHT_ENCODER_RAW_X1;
+        sample.flags = 0U;
+        if (!speed_telemetry) {
+            sample.flags |= TELEMETRY_CONTROL_FLAG_LEFT_ENCODER_RAW |
+                TELEMETRY_CONTROL_FLAG_RIGHT_ENCODER_RAW_X1;
+        }
         if (g_chassis_actuator_diag.applied_left_permille != 0) {
             sample.flags |= TELEMETRY_CONTROL_FLAG_MOTOR_LEFT_ACTIVE;
         }
         if (g_chassis_actuator_diag.applied_right_permille != 0) {
             sample.flags |= TELEMETRY_CONTROL_FLAG_MOTOR_RIGHT_ACTIVE;
         }
-        if (g_chassis_actuator_diag.control_mode ==
-                (uint8_t) CHASSIS_ACTUATOR_MODE_SPEED &&
+        if (speed_telemetry &&
             g_chassis_actuator_diag.output_permitted != 0U) {
             sample.flags |= TELEMETRY_CONTROL_FLAG_SPEED_CLOSED_LOOP;
             if (g_chassis_actuator_diag.speed_phase ==
