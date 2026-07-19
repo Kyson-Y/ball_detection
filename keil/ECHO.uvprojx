@@ -412,6 +412,11 @@
               <FilePath>..\module\device\ssd1306.c</FilePath>
             </File>
             <File>
+              <FileName>tfmini_s.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\module\device\tfmini_s.c</FilePath>
+            </File>
+            <File>
               <FileName>system_task.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\app\tasks\system_task.c</FilePath>
@@ -500,6 +505,11 @@
               <FileName>bsp_uart_tx_dma.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\bsp\source\bsp_uart_tx_dma.c</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_tfmini_uart.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bsp\source\bsp_tfmini_uart.c</FilePath>
             </File>
             <File>
               <FileName>bsp_i2c.c</FileName>

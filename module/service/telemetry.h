@@ -10,6 +10,7 @@
 #include "motor_profile.h"
 #include "system_health.h"
 #include "task.h"
+#include "tfmini_s.h"
 
 #define TELEMETRY_PROTOCOL_VERSION        1U
 #define TELEMETRY_FRAME_TYPE_CONTROL      1U
@@ -21,6 +22,7 @@
 #define TELEMETRY_FRAME_TYPE_MOTOR_PROFILE 7U
 #define TELEMETRY_FRAME_TYPE_REFLECTANCE  8U
 #define TELEMETRY_FRAME_TYPE_SUPPLY_VOLTAGE 9U
+#define TELEMETRY_FRAME_TYPE_TFMINI       10U
 #define TELEMETRY_CONTROL_PAYLOAD_BYTES   96U
 #define TELEMETRY_CONTROL_FRAME_BYTES     112U
 #define TELEMETRY_PARAMETER_ACK_PAYLOAD_BYTES 16U
@@ -33,6 +35,8 @@
 #define TELEMETRY_REFLECTANCE_FRAME_BYTES     52U
 #define TELEMETRY_SUPPLY_VOLTAGE_PAYLOAD_BYTES 24U
 #define TELEMETRY_SUPPLY_VOLTAGE_FRAME_BYTES   40U
+#define TELEMETRY_TFMINI_PAYLOAD_BYTES     64U
+#define TELEMETRY_TFMINI_FRAME_BYTES       80U
 #define TELEMETRY_HEALTH_PAYLOAD_BYTES    116U
 #define TELEMETRY_HEALTH_FRAME_BYTES      132U
 #define TELEMETRY_MAX_FRAME_BYTES         TELEMETRY_HEALTH_FRAME_BYTES
@@ -97,6 +101,13 @@ typedef struct {
 } telemetry_actuator_ack_t;
 
 typedef struct {
+    tfmini_s_snapshot_t snapshot;
+    uint32_t uart_rx_overflow_count;
+    uint8_t query_attempt_count;
+    uint8_t reserved[3];
+} telemetry_tfmini_sample_t;
+
+typedef struct {
     uint32_t publish_attempt_count;
     uint32_t publish_accepted_count;
     uint32_t publish_dropped_count;
@@ -115,6 +126,9 @@ typedef struct {
     uint32_t supply_voltage_attempt_count;
     uint32_t supply_voltage_accepted_count;
     uint32_t supply_voltage_dropped_count;
+    uint32_t tfmini_attempt_count;
+    uint32_t tfmini_accepted_count;
+    uint32_t tfmini_dropped_count;
     uint32_t health_attempt_count;
     uint32_t health_accepted_count;
     uint32_t health_dropped_count;
@@ -151,6 +165,8 @@ bool Telemetry_PublishReflectance(
     const bsp_reflectance_sample_t *sample);
 bool Telemetry_PublishSupplyVoltage(
     const bsp_supply_voltage_sample_t *sample);
+bool Telemetry_PublishTfmini(
+    const telemetry_tfmini_sample_t *sample);
 bool Telemetry_PublishHealth(const system_health_snapshot_t *snapshot);
 
 #endif

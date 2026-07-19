@@ -294,3 +294,22 @@ quiet-window 门禁。这些维护不代表 Phase 2A 功能已经实现。
 - 冷启动遥测确认 Profile ID 5 / v4、默认 `4/10/0`、左右输出全零、Health active/sticky/deadline 全零。
 - 主机端仍有红外切换耦合造成的 CRC/gap；落地负载、直线同步、电流和温升 deferred。
 - 详细证据：`docs/worklogs/2026-07-19_513x_4s_pid_tuning.md`。
+
+## 15. TFmini-S 激光测距接入（2026-07-19）
+
+- 照片板内丝印为 `TFmini V1.8.1`；外形、线序、9 字节测距帧和实机 `0x5A` 回包确认
+  按 TFmini-S 驱动。固件版本原始 `07 03 02`，显示为 `2.3.7`。
+- 当前 UART1 为 PA8 TX、PA9 RX、115200 8N1；红线必须使用 5.0 V +/-0.1 V，黑线共地，
+  黄线 RXD、绿线 TXD，逻辑电平 3.3 V LVTTL。
+- 新驱动使用中断环形缓冲和 ServiceTask 流式解析，不新增任务；支持距离、强度、芯片温度、
+  帧率、无效状态、校验错误、超时和固件版本诊断。UART0 type 10 以 20 Hz 对外发布。
+- FreeRTOS/App full rebuild 0 Error / 0 Warning；76,056 B Flash 逐字节回读 SHA-256
+  `7B5FE3ABA8FD12EE37E82819C0FD85A7A8E3F16E61EBE3F93EFA64F64E2A29D9` 一致；
+  HEX SHA-256 为 `9FDEE670AA28F049945DE41AE510654FC9CF010BF8A656B792947F25AA463DFF`。
+- 20 秒无断点实测为 2007/2007 有效帧、0 无效、0 校验、0 超时、0 UART 溢出，设备帧率
+  约 97.9 Hz；SystemTask/ServiceTask 为 2041/20415，deadline/fault 为 0，电机输出全零。
+- 10 个一秒静态样本为 103–104 cm，强度 2328–2337，芯片温度 56.00 C。
+- TFmini-S 支持 I2C 0x10 / 400 kbit/s，但 PA8/PA9 没有硬件 I2C 复用；未来推荐迁移到
+  PA0/PA1 的 I2C0 与 OLED 0x3C 共总线。当前未切换或保存 I2C 设置。
+- 详细接线和协议：`docs/hardware/TFMINI_S_LIDAR.md`；过程记录：
+  `docs/worklogs/2026-07-19_tfmini_s_uart_bringup.md`。

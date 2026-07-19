@@ -58,6 +58,7 @@ SYSCONFIG_WEAK void SYSCFG_DL_init(void)
     SYSCFG_DL_TIMEBASE_init();
     SYSCFG_DL_OLED_I2C_init();
     SYSCFG_DL_DEBUG_UART_init();
+    SYSCFG_DL_LIDAR_UART_init();
     SYSCFG_DL_REFLECTANCE_ADC_init();
     SYSCFG_DL_SUPPLY_ADC_init();
     SYSCFG_DL_DMA_init();
@@ -103,6 +104,7 @@ SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
     DL_TimerG_reset(TIMEBASE_INST);
     DL_I2C_reset(OLED_I2C_INST);
     DL_UART_Main_reset(DEBUG_UART_INST);
+    DL_UART_Main_reset(LIDAR_UART_INST);
     DL_ADC12_reset(REFLECTANCE_ADC_INST);
     DL_ADC12_reset(SUPPLY_ADC_INST);
 
@@ -114,6 +116,7 @@ SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
     DL_TimerG_enablePower(TIMEBASE_INST);
     DL_I2C_enablePower(OLED_I2C_INST);
     DL_UART_Main_enablePower(DEBUG_UART_INST);
+    DL_UART_Main_enablePower(LIDAR_UART_INST);
     DL_ADC12_enablePower(REFLECTANCE_ADC_INST);
     DL_ADC12_enablePower(SUPPLY_ADC_INST);
 
@@ -151,6 +154,10 @@ SYSCONFIG_WEAK void SYSCFG_DL_GPIO_init(void)
         GPIO_DEBUG_UART_IOMUX_TX, GPIO_DEBUG_UART_IOMUX_TX_FUNC);
     DL_GPIO_initPeripheralInputFunction(
         GPIO_DEBUG_UART_IOMUX_RX, GPIO_DEBUG_UART_IOMUX_RX_FUNC);
+    DL_GPIO_initPeripheralOutputFunction(
+        GPIO_LIDAR_UART_IOMUX_TX, GPIO_LIDAR_UART_IOMUX_TX_FUNC);
+    DL_GPIO_initPeripheralInputFunction(
+        GPIO_LIDAR_UART_IOMUX_RX, GPIO_LIDAR_UART_IOMUX_RX_FUNC);
 
     DL_GPIO_initDigitalOutputFeatures(GPIO_LEDS_USER_LED_1_IOMUX,
 		 DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_PULL_DOWN,
@@ -508,6 +515,45 @@ SYSCONFIG_WEAK void SYSCFG_DL_DEBUG_UART_init(void)
     DL_UART_Main_setTXFIFOThreshold(DEBUG_UART_INST, DL_UART_TX_FIFO_LEVEL_ONE_ENTRY);
 
     DL_UART_Main_enable(DEBUG_UART_INST);
+}
+static const DL_UART_Main_ClockConfig gLIDAR_UARTClockConfig = {
+    .clockSel    = DL_UART_MAIN_CLOCK_BUSCLK,
+    .divideRatio = DL_UART_MAIN_CLOCK_DIVIDE_RATIO_1
+};
+
+static const DL_UART_Main_Config gLIDAR_UARTConfig = {
+    .mode        = DL_UART_MAIN_MODE_NORMAL,
+    .direction   = DL_UART_MAIN_DIRECTION_TX_RX,
+    .flowControl = DL_UART_MAIN_FLOW_CONTROL_NONE,
+    .parity      = DL_UART_MAIN_PARITY_NONE,
+    .wordLength  = DL_UART_MAIN_WORD_LENGTH_8_BITS,
+    .stopBits    = DL_UART_MAIN_STOP_BITS_ONE
+};
+
+SYSCONFIG_WEAK void SYSCFG_DL_LIDAR_UART_init(void)
+{
+    DL_UART_Main_setClockConfig(LIDAR_UART_INST, (DL_UART_Main_ClockConfig *) &gLIDAR_UARTClockConfig);
+
+    DL_UART_Main_init(LIDAR_UART_INST, (DL_UART_Main_Config *) &gLIDAR_UARTConfig);
+    /*
+     * Configure baud rate by setting oversampling and baud rate divisors.
+     *  Target baud rate: 115200
+     *  Actual baud rate: 115190.78
+     */
+    DL_UART_Main_setOversampling(LIDAR_UART_INST, DL_UART_OVERSAMPLING_RATE_16X);
+    DL_UART_Main_setBaudRateDivisor(LIDAR_UART_INST, LIDAR_UART_IBRD_40_MHZ_115200_BAUD, LIDAR_UART_FBRD_40_MHZ_115200_BAUD);
+
+
+    /* Configure Interrupts */
+    DL_UART_Main_enableInterrupt(LIDAR_UART_INST,
+                                 DL_UART_MAIN_INTERRUPT_RX);
+
+    /* Configure FIFOs */
+    DL_UART_Main_enableFIFOs(LIDAR_UART_INST);
+    DL_UART_Main_setRXFIFOThreshold(LIDAR_UART_INST, DL_UART_RX_FIFO_LEVEL_ONE_ENTRY);
+    DL_UART_Main_setTXFIFOThreshold(LIDAR_UART_INST, DL_UART_TX_FIFO_LEVEL_ONE_ENTRY);
+
+    DL_UART_Main_enable(LIDAR_UART_INST);
 }
 
 /* REFLECTANCE_ADC Initialization */

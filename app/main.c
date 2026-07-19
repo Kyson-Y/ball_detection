@@ -4,6 +4,7 @@
 #include "bsp_reflectance.h"
 #include "bsp_reset.h"
 #include "bsp_supply_voltage.h"
+#include "bsp_tfmini_uart.h"
 #include "bsp_time.h"
 #include "chassis_actuator.h"
 #include "command_service.h"
@@ -15,6 +16,7 @@
 #include "rtos_hooks.h"
 #include "system_health.h"
 #include "task.h"
+#include "tfmini_s.h"
 #include "ti_msp_dl_config.h"
 
 int main(void)
@@ -27,6 +29,8 @@ int main(void)
     BSP_Encoder_Init();
     BSP_Reflectance_Init();
     BSP_SupplyVoltage_Init();
+    TfminiS_Init();
+    BSP_TfminiUart_Init();
     SerialTx_Init();
     SerialRx_Init();
     ParameterService_Init();

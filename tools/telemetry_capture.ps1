@@ -28,6 +28,7 @@ $ActuatorAckFrameType = 6
 $MotorProfileFrameType = 7
 $ReflectanceFrameType = 8
 $SupplyVoltageFrameType = 9
+$TfminiFrameType = 10
 $LegacyControlPayloadLength = 40
 $DualOutputControlPayloadLength = 44
 $ControlPayloadLength = 96
@@ -38,6 +39,7 @@ $ActuatorAckPayloadLength = 16
 $MotorProfilePayloadLength = 36
 $ReflectancePayloadLength = 36
 $SupplyVoltagePayloadLength = 24
+$TfminiPayloadLength = 64
 $MinimumFrameLength = 16
 $MaximumPayloadLength = 128
 [uint64]$U32HalfRange = 2147483648
@@ -201,6 +203,7 @@ $actuatorAckFrames = 0
 $motorProfileFrames = 0
 $reflectanceFrames = 0
 $supplyVoltageFrames = 0
+$tfminiFrames = 0
 $unknownFrames = 0
 $crcErrors = 0
 [uint64]$sequenceGaps = 0
@@ -226,12 +229,20 @@ $firstSupplyVoltageTimestamp = $null
 $lastSupplyVoltageTimestamp = $null
 $firstSupplySampleSequence = $null
 $lastSupplySampleSequence = $null
+$firstTfminiTimestamp = $null
+$lastTfminiTimestamp = $null
+$firstTfminiSampleSequence = $null
+$lastTfminiSampleSequence = $null
 $supplyRawMinimum = [uint16]::MaxValue
 $supplyRawMaximum = 0
 [uint64]$supplyRawSum = 0
 $supplyBatteryMinimumMv = [uint32]::MaxValue
 $supplyBatteryMaximumMv = 0
 [uint64]$supplyBatterySumMv = 0
+$tfminiValidDistanceCount = 0
+$tfminiDistanceMinimumCm = [uint16]::MaxValue
+$tfminiDistanceMaximumCm = 0
+[uint64]$tfminiDistanceSumCm = 0
 $minimumPeriodUs = [uint32]::MaxValue
 $maximumPeriodUs = 0
 $maximumExecutionUs = 0
@@ -242,6 +253,7 @@ $latestActuatorAck = $null
 $latestMotorProfile = $null
 $latestReflectance = $null
 $latestSupplyVoltage = $null
+$latestTfmini = $null
 
 try {
     while (($offset + $MinimumFrameLength) -le $data.Length) {
@@ -609,6 +621,80 @@ try {
                     $data, $payloadOffset + 20)
             }
         }
+        elseif (($frameType -eq $TfminiFrameType) -and
+            ($payloadLength -eq $TfminiPayloadLength)) {
+            $tfminiFrames++
+            $tfminiSampleSequence = [BitConverter]::ToUInt32(
+                $data, $payloadOffset)
+            $tfminiDistanceCm = [BitConverter]::ToUInt16(
+                $data, $payloadOffset + 12)
+            $tfminiFlags = $data[$payloadOffset + 19]
+            if ($null -eq $firstTfminiTimestamp) {
+                $firstTfminiTimestamp = $timestampUs
+                $firstTfminiSampleSequence = $tfminiSampleSequence
+            }
+            $lastTfminiTimestamp = $timestampUs
+            $lastTfminiSampleSequence = $tfminiSampleSequence
+            if (($tfminiFlags -band 0x02) -ne 0) {
+                $tfminiValidDistanceCount++
+                if ($tfminiDistanceCm -lt $tfminiDistanceMinimumCm) {
+                    $tfminiDistanceMinimumCm = $tfminiDistanceCm
+                }
+                if ($tfminiDistanceCm -gt $tfminiDistanceMaximumCm) {
+                    $tfminiDistanceMaximumCm = $tfminiDistanceCm
+                }
+                $tfminiDistanceSumCm += $tfminiDistanceCm
+            }
+            $firmwareRaw = @(
+                $data[$payloadOffset + 60],
+                $data[$payloadOffset + 61],
+                $data[$payloadOffset + 62]
+            )
+            $latestTfmini = [pscustomobject]@{
+                SampleSequence = $tfminiSampleSequence
+                MeasurementTimestampUs = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 4)
+                AgeUs = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 8)
+                DistanceCm = $tfminiDistanceCm
+                Strength = [BitConverter]::ToUInt16(
+                    $data, $payloadOffset + 14)
+                TemperatureC = [Math]::Round(
+                    [BitConverter]::ToInt16($data, $payloadOffset + 16) /
+                        100.0, 2)
+                Status = $data[$payloadOffset + 18]
+                Online = (($tfminiFlags -band 0x01) -ne 0)
+                MeasurementValid = (($tfminiFlags -band 0x02) -ne 0)
+                FirmwareVersionValid = (($tfminiFlags -band 0x04) -ne 0)
+                FramePeriodUs = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 20)
+                DeviceFrameRateHz = [Math]::Round(
+                    [BitConverter]::ToUInt32(
+                        $data, $payloadOffset + 24) / 1000.0, 3)
+                DataFrameCount = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 28)
+                ValidMeasurementCount = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 32)
+                InvalidMeasurementCount = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 36)
+                ChecksumErrorCount = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 40)
+                CommandFrameCount = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 44)
+                CommandChecksumErrorCount = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 48)
+                TimeoutCount = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 52)
+                UartRxOverflowCount = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 56)
+                FirmwareVersionRaw = $firmwareRaw
+                FirmwareVersion = if (($tfminiFlags -band 0x04) -ne 0) {
+                    "{0}.{1}.{2}" -f $firmwareRaw[2],
+                        $firmwareRaw[1], $firmwareRaw[0]
+                } else { "unknown" }
+                QueryAttemptCount = $data[$payloadOffset + 63]
+            }
+        }
         else {
             $unknownFrames++
         }
@@ -681,6 +767,27 @@ $summary = [pscustomobject]@{
         [Math]::Round(
             $supplyBatterySumMv / [double]$supplyVoltageFrames, 1)
     } else { 0.0 }
+    TfminiFrames = $tfminiFrames
+    TfminiTelemetryRateHz = Get-RateHz -Count $tfminiFrames `
+        -FirstTimestamp $firstTfminiTimestamp `
+        -LastTimestamp $lastTfminiTimestamp
+    TfminiDeviceFrameRateHz = if (($tfminiFrames -gt 1) -and
+        ($lastTfminiTimestamp -ne $firstTfminiTimestamp)) {
+        [Math]::Round(
+            (Get-U32Delta -Current $lastTfminiSampleSequence `
+                -Previous $firstTfminiSampleSequence) * 1000000.0 /
+            (Get-U32Delta -Current $lastTfminiTimestamp `
+                -Previous $firstTfminiTimestamp), 3)
+    } else { 0.0 }
+    TfminiValidDistanceCount = $tfminiValidDistanceCount
+    TfminiDistanceMinimumCm = if ($tfminiValidDistanceCount -gt 0) {
+        $tfminiDistanceMinimumCm
+    } else { 0 }
+    TfminiDistanceMaximumCm = $tfminiDistanceMaximumCm
+    TfminiDistanceAverageCm = if ($tfminiValidDistanceCount -gt 0) {
+        [Math]::Round(
+            $tfminiDistanceSumCm / [double]$tfminiValidDistanceCount, 3)
+    } else { 0.0 }
     UnknownFrames = $unknownFrames
     CrcErrors = $crcErrors
     SequenceGaps = $sequenceGaps
@@ -702,6 +809,7 @@ $summary = [pscustomobject]@{
     LatestMotorProfile = $latestMotorProfile
     LatestReflectance = $latestReflectance
     LatestSupplyVoltage = $latestSupplyVoltage
+    LatestTfmini = $latestTfmini
     CsvPath = $CsvPath
     JsonPath = $JsonPath
 }

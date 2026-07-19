@@ -2,10 +2,45 @@
 
 ```yaml
 handoff_schema: 1
-updated_at: 2026-07-19T16:33:35+08:00
+updated_at: 2026-07-19T20:11:45+08:00
 updated_by: Codex
 status: complete
 ```
+
+## 0.0000 当前任务：TFmini-S 激光测距接入
+
+- 当前目标：识别用户照片中的北醒 LiDAR，并在现有 513X 固件中完成低功率测距驱动；
+  电机、云台和其他执行器不是本任务目标，保持输出为零。
+- 照片板内丝印为 `TFmini V1.8.1`。外壳、四针布局和线序与 TFmini-S 手册一致；
+  最终型号仍以 UART 固件版本回包和实机协议响应为准。
+- 当前接线按 UART1：MCU `PA8/TX -> LiDAR 黄线/RXD`，
+  `PA9/RX <- LiDAR 绿线/TXD`；红线必须为 `5.0 V +/-0.1 V`，黑线共地。
+  通信电平为 3.3 V LVTTL，默认 `115200 8N1`。
+- TFmini-S 支持 UART、I2C 和 I/O；UART/I2C 复用同一对信号线。计划先用 UART
+  读取 9 字节测距帧并查询固件版本，不自动发送保存设置或 I2C 切换命令。
+- 后续 I2C 模式默认地址 `0x10`、最高 400 kbit/s；切换后黄线为 SDA、绿线为 SCL，
+  需要重新配置 MCU 引脚/上拉并掉电重启，不能在当前 UART 接线下直接切换。
+- 开始 HEAD：`e99c464`，分支：`refs/heads/codex/513a-motor-bringup`。
+  用户已有 dirty 文件 `docs/hardware/ECHO_WIRING_GUIDE.md`，禁止覆盖、还原或暂存；
+  `tmp/` 只保存忽略的资料提取和实测原始证据。
+- 已新增 UART1 BSP、TFmini-S 流式解析、固件版本只读查询和 UART0 type 10 遥测；
+  SysConfig 生成 0 error / 1 个既有 ProjectConfig warning，FreeRTOS/App full rebuild 为
+  0 Error / 0 Warning，Code=72,656，ZI=18,508。
+- 旧遥测夹具和新增 TFmini type 10 夹具均运行通过；TFmini C 解析夹具已通过 ArmClang
+  `-Werror` 编译，但主机原生运行环境不可用，合成向量执行状态仍为 `not run`。
+- 最终 HEX SHA-256 为 `9FDEE670AA28F049945DE41AE510654FC9CF010BF8A656B792947F25AA463DFF`；
+  76,056 B 二进制 SHA-256 为
+  `7B5FE3ABA8FD12EE37E82819C0FD85A7A8E3F16E61EBE3F93EFA64F64E2A29D9`，
+  DAPLink `2b5d6f2a` / 500 kHz Flash 逐字节回读一致。
+- 20 秒同一 OpenOCD 会话内无断点实测：2007/2007 有效帧、0 无效、0 校验、0 超时、
+  0 UART 溢出，设备帧率约 97.895 Hz；固件版本 `2.3.7`，当前距离 104 cm、强度 2328、
+  芯片温度 55.75 C。
+- 同次 SystemTask/ServiceTask 为 2041/20415，deadline/fault 为 0；左右 PWM、
+  applied/normalized output、armed/output permitted 全为 0。最终固件继续运行，未发送电机命令。
+- 10 个一秒静态样本为 103–104 cm、强度 2328–2337、芯片温度 56.00 C；每秒主动 halt
+  采样最终累计 1 个校验错误，只记录为调试暂停干扰，不覆盖无断点 20 秒的零错误结论。
+- UART0 `COM9` 仍被浏览器侧串口占用，因此真实 type 10 串口端到端采集 deferred；
+  释放端口后应补一次 30 秒采集。当前未发送 I2C 切换或保存设置命令。
 
 ## 0.000 当前任务：15.9 V 工况 PID 网页实测
 

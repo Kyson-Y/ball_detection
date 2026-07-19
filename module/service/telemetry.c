@@ -29,7 +29,8 @@ typedef enum {
     TELEMETRY_MESSAGE_ACTUATOR_ACK = 4U,
     TELEMETRY_MESSAGE_MOTOR_PROFILE = 5U,
     TELEMETRY_MESSAGE_REFLECTANCE = 6U,
-    TELEMETRY_MESSAGE_SUPPLY_VOLTAGE = 7U
+    TELEMETRY_MESSAGE_SUPPLY_VOLTAGE = 7U,
+    TELEMETRY_MESSAGE_TFMINI = 8U
 } telemetry_message_kind_t;
 
 typedef struct {
@@ -110,6 +111,7 @@ typedef struct {
         telemetry_motor_profile_sample_t motor_profile;
         bsp_reflectance_sample_t reflectance;
         bsp_supply_voltage_sample_t supply_voltage;
+        telemetry_tfmini_sample_t tfmini;
         telemetry_health_sample_t health;
     } data;
 } telemetry_message_t;
@@ -411,6 +413,54 @@ static uint16_t Telemetry_EncodeSupplyVoltage(
     return Telemetry_EndFrame(frame, payload_length);
 }
 
+static uint16_t Telemetry_EncodeTfmini(
+    const telemetry_message_t *message, uint8_t *frame)
+{
+    const telemetry_tfmini_sample_t *sample = &message->data.tfmini;
+    const tfmini_s_snapshot_t *snapshot = &sample->snapshot;
+    uint8_t *payload = &frame[FRAME_OFFSET_PAYLOAD];
+    uint8_t flags = 0U;
+    uint16_t payload_length = TELEMETRY_TFMINI_PAYLOAD_BYTES;
+
+    if (snapshot->online != 0U) {
+        flags |= 1U << 0;
+    }
+    if (snapshot->status == TFMINI_S_MEASUREMENT_VALID) {
+        flags |= 1U << 1;
+    }
+    if (snapshot->firmware_version_valid != 0U) {
+        flags |= 1U << 2;
+    }
+
+    (void) Telemetry_BeginFrame(frame, TELEMETRY_FRAME_TYPE_TFMINI,
+        payload_length, message->sequence, message->timestamp_us);
+    Telemetry_PutU32(&payload[0], snapshot->sample_sequence);
+    Telemetry_PutU32(&payload[4], snapshot->timestamp_us);
+    Telemetry_PutU32(&payload[8], snapshot->age_us);
+    Telemetry_PutU16(&payload[12], snapshot->distance_cm);
+    Telemetry_PutU16(&payload[14], snapshot->strength);
+    Telemetry_PutU16(&payload[16],
+        (uint16_t) snapshot->temperature_centi_c);
+    payload[18] = snapshot->status;
+    payload[19] = flags;
+    Telemetry_PutU32(&payload[20], snapshot->frame_period_us);
+    Telemetry_PutU32(&payload[24], snapshot->frame_rate_millihz);
+    Telemetry_PutU32(&payload[28], snapshot->data_frame_count);
+    Telemetry_PutU32(&payload[32], snapshot->valid_measurement_count);
+    Telemetry_PutU32(&payload[36], snapshot->invalid_measurement_count);
+    Telemetry_PutU32(&payload[40], snapshot->checksum_error_count);
+    Telemetry_PutU32(&payload[44], snapshot->command_frame_count);
+    Telemetry_PutU32(&payload[48],
+        snapshot->command_checksum_error_count);
+    Telemetry_PutU32(&payload[52], snapshot->timeout_count);
+    Telemetry_PutU32(&payload[56], sample->uart_rx_overflow_count);
+    payload[60] = snapshot->firmware_version_raw[0];
+    payload[61] = snapshot->firmware_version_raw[1];
+    payload[62] = snapshot->firmware_version_raw[2];
+    payload[63] = sample->query_attempt_count;
+    return Telemetry_EndFrame(frame, payload_length);
+}
+
 static void Telemetry_Task(void *context)
 {
     telemetry_message_t message;
@@ -453,10 +503,14 @@ static void Telemetry_Task(void *context)
             frame_length = Telemetry_EncodeReflectance(&message, frame);
             g_telemetry_diag.last_frame_type =
                 TELEMETRY_FRAME_TYPE_REFLECTANCE;
-        } else {
+        } else if (message.kind == TELEMETRY_MESSAGE_SUPPLY_VOLTAGE) {
             frame_length = Telemetry_EncodeSupplyVoltage(&message, frame);
             g_telemetry_diag.last_frame_type =
                 TELEMETRY_FRAME_TYPE_SUPPLY_VOLTAGE;
+        } else {
+            frame_length = Telemetry_EncodeTfmini(&message, frame);
+            g_telemetry_diag.last_frame_type =
+                TELEMETRY_FRAME_TYPE_TFMINI;
         }
 
         crc_offset = (uint16_t) (frame_length - 2U);
@@ -681,6 +735,29 @@ bool Telemetry_PublishSupplyVoltage(
         g_telemetry_diag.supply_voltage_accepted_count++;
     } else {
         g_telemetry_diag.supply_voltage_dropped_count++;
+    }
+    return accepted;
+}
+
+bool Telemetry_PublishTfmini(
+    const telemetry_tfmini_sample_t *sample)
+{
+    telemetry_message_t message;
+    bool accepted;
+
+    g_telemetry_diag.tfmini_attempt_count++;
+    if ((sample == NULL) || (s_queue == NULL)) {
+        g_telemetry_diag.tfmini_dropped_count++;
+        return false;
+    }
+
+    message.kind = TELEMETRY_MESSAGE_TFMINI;
+    message.data.tfmini = *sample;
+    accepted = Telemetry_EnqueueMessage(&message);
+    if (accepted) {
+        g_telemetry_diag.tfmini_accepted_count++;
+    } else {
+        g_telemetry_diag.tfmini_dropped_count++;
     }
     return accepted;
 }
