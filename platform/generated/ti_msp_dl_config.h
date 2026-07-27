@@ -159,18 +159,18 @@ bool SYSCFG_DL_SYSCTL_SYSPLL_init(void);
 
 
 /* Defines for DEBUG_UART */
-#define DEBUG_UART_INST                                                    UART1
+#define DEBUG_UART_INST                                                    UART0
 #define DEBUG_UART_INST_FREQUENCY                                       40000000
-#define DEBUG_UART_INST_IRQHandler                              UART1_IRQHandler
-#define DEBUG_UART_INST_INT_IRQN                                  UART1_INT_IRQn
+#define DEBUG_UART_INST_IRQHandler                              UART0_IRQHandler
+#define DEBUG_UART_INST_INT_IRQN                                  UART0_INT_IRQn
 #define GPIO_DEBUG_UART_RX_PORT                                            GPIOA
 #define GPIO_DEBUG_UART_TX_PORT                                            GPIOA
-#define GPIO_DEBUG_UART_RX_PIN                                     DL_GPIO_PIN_9
-#define GPIO_DEBUG_UART_TX_PIN                                     DL_GPIO_PIN_8
-#define GPIO_DEBUG_UART_IOMUX_RX                                 (IOMUX_PINCM20)
-#define GPIO_DEBUG_UART_IOMUX_TX                                 (IOMUX_PINCM19)
-#define GPIO_DEBUG_UART_IOMUX_RX_FUNC                  IOMUX_PINCM20_PF_UART1_RX
-#define GPIO_DEBUG_UART_IOMUX_TX_FUNC                  IOMUX_PINCM19_PF_UART1_TX
+#define GPIO_DEBUG_UART_RX_PIN                                    DL_GPIO_PIN_11
+#define GPIO_DEBUG_UART_TX_PIN                                    DL_GPIO_PIN_10
+#define GPIO_DEBUG_UART_IOMUX_RX                                 (IOMUX_PINCM22)
+#define GPIO_DEBUG_UART_IOMUX_TX                                 (IOMUX_PINCM21)
+#define GPIO_DEBUG_UART_IOMUX_RX_FUNC                  IOMUX_PINCM22_PF_UART0_RX
+#define GPIO_DEBUG_UART_IOMUX_TX_FUNC                  IOMUX_PINCM21_PF_UART0_TX
 #define DEBUG_UART_BAUD_RATE                                            (230400)
 #define DEBUG_UART_IBRD_40_MHZ_230400_BAUD                                  (10)
 #define DEBUG_UART_FBRD_40_MHZ_230400_BAUD                                  (54)
@@ -211,9 +211,23 @@ bool SYSCFG_DL_SYSCTL_SYSPLL_init(void);
 
 
 
+/* Defines for SUPPLY_ADC */
+#define SUPPLY_ADC_INST                                                     ADC1
+#define SUPPLY_ADC_INST_IRQHandler                               ADC1_IRQHandler
+#define SUPPLY_ADC_INST_INT_IRQN                                 (ADC1_INT_IRQn)
+#define SUPPLY_ADC_ADCMEM_0                                   DL_ADC12_MEM_IDX_0
+#define SUPPLY_ADC_ADCMEM_0_REF                  DL_ADC12_REFERENCE_VOLTAGE_VDDA
+#define SUPPLY_ADC_ADCMEM_0_REF_VOLTAGE_V                                     3.3
+#define GPIO_SUPPLY_ADC_C4_PORT                                            GPIOB
+#define GPIO_SUPPLY_ADC_C4_PIN                                    DL_GPIO_PIN_17
+#define GPIO_SUPPLY_ADC_IOMUX_C4                                 (IOMUX_PINCM43)
+#define GPIO_SUPPLY_ADC_IOMUX_C4_FUNC             (IOMUX_PINCM43_PF_UNCONNECTED)
+
+
+
 /* Defines for DEBUG_UART_TX_DMA */
 #define DEBUG_UART_TX_DMA_CHAN_ID                                            (3)
-#define DEBUG_UART_INST_DMA_TRIGGER                          (DMA_UART1_TX_TRIG)
+#define DEBUG_UART_INST_DMA_TRIGGER                          (DMA_UART0_TX_TRIG)
 /* Defines for ZDT_GEN1_UART_TX_DMA */
 #define ZDT_GEN1_UART_TX_DMA_CHAN_ID                                         (1)
 #define ZDT_GEN1_UART_INST_DMA_TRIGGER                       (DMA_UART2_TX_TRIG)
@@ -259,6 +273,7 @@ void SYSCFG_DL_OLED_I2C_init(void);
 void SYSCFG_DL_DEBUG_UART_init(void);
 void SYSCFG_DL_ZDT_GEN1_UART_init(void);
 void SYSCFG_DL_ZDT_GEN2_UART_init(void);
+void SYSCFG_DL_SUPPLY_ADC_init(void);
 void SYSCFG_DL_DMA_init(void);
 
 

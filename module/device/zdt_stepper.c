@@ -7,6 +7,7 @@
 #include "bsp_zdt_uart.h"
 
 #define ZDT_GEN1_MIN_TX_INTERVAL_US      20000UL
+#define ZDT_GEN1_HIGH_RATE_INTERVAL_US    2000UL
 #define ZDT_GEN2_MIN_TX_INTERVAL_US       2000UL
 #define ZDT_GEN1_POLL_INTERVAL_US        50000UL
 #define ZDT_GEN2_POLL_INTERVAL_US        10000UL
@@ -37,6 +38,7 @@ typedef enum {
 typedef struct {
     zdt_protocol_frame_t pending_frame;
     zdt_protocol_frame_t last_motion_frame;
+    uint32_t last_service_us;
     uint32_t last_tx_us;
     uint32_t next_poll_us;
     uint32_t response_deadline_us;
@@ -51,6 +53,7 @@ typedef struct {
     uint8_t last_motion_valid;
     uint8_t motion_type;
     uint8_t speed_lease_active;
+    uint8_t allow_position_interrupt;
     uint8_t shutdown_state;
 } zdt_stepper_state_t;
 
@@ -88,8 +91,12 @@ static bool ZdtStepper_FrameEquals(const zdt_protocol_frame_t *left,
 
 static uint32_t ZdtStepper_MinTxIntervalUs(zdt_stepper_axis_t axis)
 {
-    return (axis == ZDT_STEPPER_AXIS_GEN1) ?
-        ZDT_GEN1_MIN_TX_INTERVAL_US : ZDT_GEN2_MIN_TX_INTERVAL_US;
+    if (axis == ZDT_STEPPER_AXIS_GEN1) {
+        return (s_state[axis].allow_position_interrupt != 0U) ?
+            ZDT_GEN1_HIGH_RATE_INTERVAL_US :
+            ZDT_GEN1_MIN_TX_INTERVAL_US;
+    }
+    return ZDT_GEN2_MIN_TX_INTERVAL_US;
 }
 
 static uint32_t ZdtStepper_PollIntervalUs(zdt_stepper_axis_t axis)
@@ -112,13 +119,21 @@ static uint8_t ZdtStepper_OfflineTimeouts(zdt_stepper_axis_t axis)
 
 static zdt_stepper_request_status_t ZdtStepper_StageFrame(
     zdt_stepper_axis_t axis, const zdt_protocol_frame_t *frame,
-    zdt_motion_type_t motion_type)
+    zdt_motion_type_t motion_type, bool allow_pending_replace)
 {
     zdt_stepper_state_t *state = &s_state[axis];
 
     if ((motion_type != ZDT_MOTION_NONE) &&
         (state->last_motion_valid != 0U) &&
-        ZdtStepper_FrameEquals(frame, &state->last_motion_frame)) {
+        ZdtStepper_FrameEquals(frame, &state->last_motion_frame) &&
+        !((axis == ZDT_STEPPER_AXIS_GEN2) &&
+          (motion_type == ZDT_MOTION_SPEED))) {
+        if ((axis == ZDT_STEPPER_AXIS_GEN1) &&
+            (motion_type == ZDT_MOTION_SPEED) &&
+            (state->speed_lease_active != 0U)) {
+            state->speed_lease_deadline_us =
+                state->last_service_us + ZDT_STEPPER_SPEED_LEASE_US;
+        }
         g_zdt_stepper_diag.axis[axis].duplicate_request_count++;
         return ZDT_STEPPER_REQUEST_DUPLICATE;
     }
@@ -128,7 +143,8 @@ static zdt_stepper_request_status_t ZdtStepper_StageFrame(
         bool pending_is_motion =
             (pending_function == 0xF6U) || (pending_function == 0xFDU);
 
-        if ((axis != ZDT_STEPPER_AXIS_GEN2) ||
+        if (((axis != ZDT_STEPPER_AXIS_GEN2) &&
+             !allow_pending_replace) ||
             (motion_type == ZDT_MOTION_NONE) || !pending_is_motion) {
             g_zdt_stepper_diag.axis[axis].rejected_request_count++;
             return ZDT_STEPPER_REQUEST_BUSY;
@@ -160,6 +176,10 @@ static uint8_t ZdtStepper_ResponseLength(
             return 6U;
         case (uint8_t) ZDT_QUERY_REALTIME_POSITION:
             return 8U;
+        case (uint8_t) ZDT_QUERY_DRIVER_CONFIG:
+            return 33U;
+        case (uint8_t) ZDT_QUERY_SYSTEM_STATUS:
+            return 31U;
         case (uint8_t) ZDT_QUERY_MOTOR_STATUS:
         case 0x00U:
         case 0xF3U:
@@ -195,10 +215,67 @@ static void ZdtStepper_ProcessResponse(zdt_stepper_axis_t axis,
     volatile zdt_stepper_axis_diagnostics_t *diagnostics =
         &g_zdt_stepper_diag.axis[axis];
     zdt_protocol_reply_t reply;
+    zdt_protocol_system_status_t system_status;
+    zdt_protocol_driver_config_t driver_config;
     int32_t position_counts;
     int16_t speed_rpm;
     uint8_t status_flags;
     uint8_t function = data[1];
+
+    if (function == (uint8_t) ZDT_QUERY_SYSTEM_STATUS) {
+        int64_t scaled;
+
+        if (!ZdtProtocol_ParseSystemStatus(data, length,
+                g_zdt_stepper_config[axis].address, &system_status)) {
+            diagnostics->invalid_response_count++;
+            return;
+        }
+        diagnostics->bus_voltage_mv = system_status.bus_voltage_mv;
+        diagnostics->phase_current_ma = system_status.phase_current_ma;
+        diagnostics->encoder_linear = system_status.encoder_linear;
+        diagnostics->target_position_counts =
+            system_status.target_position_counts;
+        scaled = ((int64_t) system_status.target_position_counts *
+            360000LL) / 65536LL;
+        diagnostics->target_position_millidegrees = (int32_t) scaled;
+        diagnostics->speed_rpm = system_status.speed_rpm;
+        diagnostics->position_counts = system_status.position_counts;
+        scaled = ((int64_t) system_status.position_counts *
+            360000LL) / 65536LL;
+        diagnostics->position_millidegrees = (int32_t) scaled;
+        diagnostics->position_error_counts =
+            system_status.position_error_counts;
+        scaled = ((int64_t) system_status.position_error_counts *
+            360000LL) / 65536LL;
+        diagnostics->position_error_millidegrees = (int32_t) scaled;
+        diagnostics->homing_status_flags =
+            system_status.homing_status_flags;
+        status_flags = system_status.motor_status_flags;
+        diagnostics->motor_status_flags = status_flags;
+        diagnostics->enabled =
+            ((status_flags & ZDT_STATUS_ENABLED) != 0U) ? 1U : 0U;
+        diagnostics->stalled =
+            ((status_flags & ZDT_STATUS_STALLED) != 0U) ? 1U : 0U;
+        diagnostics->stall_protected =
+            ((status_flags & ZDT_STATUS_STALL_PROTECTED) != 0U) ? 1U : 0U;
+        diagnostics->system_status_valid = 1U;
+        diagnostics->system_status_response_count++;
+        ZdtStepper_RecordValidResponse(axis, function, now_us);
+        return;
+    }
+
+    if (function == (uint8_t) ZDT_QUERY_DRIVER_CONFIG) {
+        if (!ZdtProtocol_ParseDriverConfig(data, length,
+                g_zdt_stepper_config[axis].address, &driver_config)) {
+            diagnostics->invalid_response_count++;
+            return;
+        }
+        diagnostics->driver_config = driver_config;
+        diagnostics->driver_config_valid = 1U;
+        diagnostics->driver_config_response_count++;
+        ZdtStepper_RecordValidResponse(axis, function, now_us);
+        return;
+    }
 
     if (function == (uint8_t) ZDT_QUERY_REALTIME_SPEED) {
         if (!ZdtProtocol_ParseSpeed(data, length,
@@ -405,9 +482,9 @@ static zdt_query_t ZdtStepper_NextQuery(
     };
     static const zdt_query_t gen2_query_order[] = {
         ZDT_QUERY_REALTIME_POSITION,
-        ZDT_QUERY_REALTIME_SPEED,
+        ZDT_QUERY_SYSTEM_STATUS,
         ZDT_QUERY_REALTIME_POSITION,
-        ZDT_QUERY_MOTOR_STATUS
+        ZDT_QUERY_REALTIME_SPEED
     };
     const zdt_query_t *query_order;
     uint8_t query_count;
@@ -416,6 +493,11 @@ static zdt_query_t ZdtStepper_NextQuery(
     if (state->poll_index == 0U) {
         state->poll_index = 1U;
         return ZDT_QUERY_FIRMWARE_VERSION;
+    }
+
+    if ((axis == ZDT_STEPPER_AXIS_GEN2) && (state->poll_index == 1U)) {
+        state->poll_index = 2U;
+        return ZDT_QUERY_DRIVER_CONFIG;
     }
 
     if (axis == ZDT_STEPPER_AXIS_GEN1) {
@@ -427,11 +509,14 @@ static zdt_query_t ZdtStepper_NextQuery(
         query_count = (uint8_t) (
             sizeof(gen2_query_order) / sizeof(gen2_query_order[0]));
     }
-    query = query_order[state->poll_index - 1U];
+    query = query_order[state->poll_index -
+        ((axis == ZDT_STEPPER_AXIS_GEN1) ? 1U : 2U)];
 
     state->poll_index++;
-    if (state->poll_index > query_count) {
-        state->poll_index = 1U;
+    if (state->poll_index > (uint8_t) (query_count +
+            ((axis == ZDT_STEPPER_AXIS_GEN1) ? 0U : 1U))) {
+        state->poll_index =
+            (axis == ZDT_STEPPER_AXIS_GEN1) ? 1U : 2U;
     }
     return query;
 }
@@ -469,6 +554,7 @@ static void ZdtStepper_ServiceAxis(zdt_stepper_axis_t axis,
     zdt_protocol_frame_t query_frame;
     zdt_query_t query;
 
+    state->last_service_us = now_us;
     ZdtStepper_ConsumeRx(axis, now_us);
 
     if ((state->expected_query != 0U) &&
@@ -498,10 +584,7 @@ static void ZdtStepper_ServiceAxis(zdt_stepper_axis_t axis,
 
     if (state->pending_valid != 0U) {
         if (state->expected_query != 0U) {
-            if (axis == ZDT_STEPPER_AXIS_GEN1) {
-                return;
-            }
-            state->expected_query = 0U;
+            return;
         }
         if (ZdtStepper_SendFrame(
                 axis, &state->pending_frame, now_us, false)) {
@@ -577,7 +660,13 @@ bool ZdtStepper_SelectBackupBackend(void)
 
     for (axis = 0U; axis < ZDT_STEPPER_AXIS_COUNT; axis++) {
         s_state[axis].shutdown_state = (uint8_t) ZDT_SHUTDOWN_NONE;
+        s_state[axis].expected_query = 0U;
+        s_state[axis].consecutive_timeouts = 0U;
+        s_state[axis].rx_length = 0U;
+        s_state[axis].rx_expected_length = 0U;
+        s_state[axis].poll_index = 0U;
         s_state[axis].next_poll_us = 0U;
+        BSP_ZdtUart_FlushRx((bsp_zdt_uart_port_t) axis);
     }
     g_zdt_stepper_diag.backend_selected = 1U;
     g_zdt_stepper_diag.select_count++;
@@ -597,6 +686,7 @@ void ZdtStepper_DeselectBackupBackend(void)
         s_state[axis].pending_valid = 0U;
         s_state[axis].expected_query = 0U;
         s_state[axis].speed_lease_active = 0U;
+        s_state[axis].allow_position_interrupt = 0U;
         s_state[axis].shutdown_state =
             (uint8_t) ZDT_SHUTDOWN_STOP_PENDING;
         g_zdt_stepper_diag.axis[axis].pending_command = 0U;
@@ -621,7 +711,8 @@ zdt_stepper_request_status_t ZdtStepper_RequestEnable(
         g_zdt_stepper_diag.axis[axis].rejected_request_count++;
         return ZDT_STEPPER_REQUEST_DISABLED;
     }
-    return ZdtStepper_StageFrame(axis, &frame, ZDT_MOTION_NONE);
+    return ZdtStepper_StageFrame(
+        axis, &frame, ZDT_MOTION_NONE, false);
 }
 
 zdt_stepper_request_status_t ZdtStepper_RequestSpeed(
@@ -644,13 +735,25 @@ zdt_stepper_request_status_t ZdtStepper_RequestSpeed(
         g_zdt_stepper_diag.axis[axis].rejected_request_count++;
         return ZDT_STEPPER_REQUEST_DISABLED;
     }
-    return ZdtStepper_StageFrame(axis, &frame, ZDT_MOTION_SPEED);
+    s_state[axis].allow_position_interrupt = 0U;
+    return ZdtStepper_StageFrame(
+        axis, &frame, ZDT_MOTION_SPEED, false);
 }
 
 zdt_stepper_request_status_t ZdtStepper_RequestPosition(
     zdt_stepper_axis_t axis, int32_t position_millidegrees,
     uint16_t speed_rpm, uint32_t acceleration_rpm_s,
     zdt_position_mode_t mode)
+{
+    return ZdtStepper_RequestPositionWithInterrupt(axis,
+        position_millidegrees, speed_rpm, acceleration_rpm_s,
+        mode, false);
+}
+
+zdt_stepper_request_status_t ZdtStepper_RequestPositionWithInterrupt(
+    zdt_stepper_axis_t axis, int32_t position_millidegrees,
+    uint16_t speed_rpm, uint32_t acceleration_rpm_s,
+    zdt_position_mode_t mode, bool allow_position_interrupt)
 {
     zdt_protocol_frame_t frame;
     int64_t scaled_pulses;
@@ -668,7 +771,8 @@ zdt_stepper_request_status_t ZdtStepper_RequestPosition(
     }
     if ((g_zdt_stepper_diag.axis[axis].motion_active != 0U) &&
         (s_state[axis].motion_type == (uint8_t) ZDT_MOTION_POSITION) &&
-        (g_zdt_stepper_config[axis].allow_position_interrupt == 0U)) {
+        (g_zdt_stepper_config[axis].allow_position_interrupt == 0U) &&
+        !allow_position_interrupt) {
         g_zdt_stepper_diag.axis[axis].rejected_request_count++;
         return ZDT_STEPPER_REQUEST_BUSY;
     }
@@ -687,7 +791,10 @@ zdt_stepper_request_status_t ZdtStepper_RequestPosition(
             acceleration_rpm_s, mode, false, &frame)) {
         return ZDT_STEPPER_REQUEST_INVALID;
     }
-    return ZdtStepper_StageFrame(axis, &frame, ZDT_MOTION_POSITION);
+    s_state[axis].allow_position_interrupt =
+        allow_position_interrupt ? 1U : 0U;
+    return ZdtStepper_StageFrame(axis, &frame, ZDT_MOTION_POSITION,
+        allow_position_interrupt);
 }
 
 zdt_stepper_request_status_t ZdtStepper_RequestStop(
@@ -706,6 +813,8 @@ zdt_stepper_request_status_t ZdtStepper_RequestStop(
         return ZDT_STEPPER_REQUEST_DISABLED;
     }
     s_state[axis].pending_valid = 0U;
+    s_state[axis].allow_position_interrupt = 0U;
     g_zdt_stepper_diag.axis[axis].pending_command = 0U;
-    return ZdtStepper_StageFrame(axis, &frame, ZDT_MOTION_NONE);
+    return ZdtStepper_StageFrame(
+        axis, &frame, ZDT_MOTION_NONE, false);
 }

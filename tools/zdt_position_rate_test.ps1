@@ -1,8 +1,12 @@
 [CmdletBinding()]
 param(
     [string]$Port = "COM4",
+    [ValidateSet("Gen1", "Gen2")]
+    [string]$Axis = "Gen2",
+    [switch]$AllowGen1PositionInterrupt,
+    [switch]$ContinueAfterUnstable,
     [int[]]$RatesHz = @(100, 200, 300, 400),
-    [ValidateRange(1.0, 5.0)]
+    [ValidateRange(1.0, 30.0)]
     [double]$DurationSeconds = 2.0,
     [ValidateRange(1000, 15000)]
     [int]$AmplitudeMillidegrees = 5000,
@@ -12,7 +16,7 @@ param(
     [string]$Waveform = "Triangle",
     [ValidateRange(10, 180)]
     [int]$PositionSpeedRpm = 60,
-    [ValidateRange(100, 3000)]
+    [ValidateRange(0, 3000)]
     [int]$AccelerationRpmPerSecond = 1000,
     [switch]$ConfirmUserPresent,
     [switch]$ConfirmMechanismSuspended,
@@ -32,6 +36,9 @@ foreach ($rate in $RatesHz) {
     if ($rate -lt 10 -or $rate -gt 400) {
         throw "Each requested rate must be between 10 and 400 Hz."
     }
+}
+if ($AllowGen1PositionInterrupt -and $Axis -ne "Gen1") {
+    throw "AllowGen1PositionInterrupt is only valid with Axis Gen1."
 }
 
 $commandTool = Join-Path $PSScriptRoot "zdt_backup_command.ps1"
@@ -120,9 +127,13 @@ function New-ZdtCommandFrame {
     [BitConverter]::GetBytes($magicInverse).CopyTo($frame, 18)
     [BitConverter]::GetBytes($CommandSequence).CopyTo($frame, 22)
     $frame[26] = [byte]$operation
-    $frame[27] = 1
+    $frame[27] = if ($Axis -eq "Gen1") { 0 } else { 1 }
     $frame[28] = 1
-    $frame[29] = if ($SuppressAck) { 1 } else { 0 }
+    $commandFlags = if ($SuppressAck) { 1 } else { 0 }
+    if ($AllowGen1PositionInterrupt -and $Action -eq "Position") {
+        $commandFlags = $commandFlags -bor 2
+    }
+    $frame[29] = [byte]$commandFlags
     [BitConverter]::GetBytes([int32]$Value).CopyTo($frame, 30)
     [BitConverter]::GetBytes([uint16]$PositionSpeedRpm).CopyTo($frame, 34)
     [BitConverter]::GetBytes([uint16]0).CopyTo($frame, 36)
@@ -139,7 +150,7 @@ function Invoke-ZdtTool {
     $arguments = @{
         Port = $Port
         Action = $Action
-        Axis = "Gen2"
+        Axis = $Axis
         CaptureSeconds = 0.5
         PassThru = $true
     }
@@ -169,21 +180,25 @@ function Read-AvailableBytes {
 function Get-TrackingSamples {
     param(
         [byte[]]$Bytes,
-        [hashtable]$StatusTargets
+        [hashtable]$StatusTargets,
+        [string]$SelectedAxis
     )
 
     $samples = [System.Collections.Generic.List[object]]::new()
     for ($index = 0; $index + 120 -le $Bytes.Length; $index++) {
+        $payloadLength = Get-U16 $Bytes ($index + 4)
+        $frameLength = 16 + $payloadLength
         if ($Bytes[$index] -ne 0xA5 -or
             $Bytes[$index + 1] -ne 0x5A -or
             $Bytes[$index + 2] -ne 1 -or
             $Bytes[$index + 3] -ne 9 -or
-            (Get-U16 $Bytes ($index + 4)) -ne 104) {
+            $payloadLength -notin @(104, 148) -or
+            $index + $frameLength -gt $Bytes.Length) {
             continue
         }
-        $expectedCrc = Get-U16 $Bytes ($index + 118)
+        $expectedCrc = Get-U16 $Bytes ($index + 14 + $payloadLength)
         $actualCrc = Get-Crc16Ccitt -Data $Bytes `
-            -Offset ($index + 2) -Length 116
+            -Offset ($index + 2) -Length (12 + $payloadLength)
         if ($expectedCrc -ne $actualCrc) {
             continue
         }
@@ -192,14 +207,15 @@ function Get-TrackingSamples {
             continue
         }
         $target = $StatusTargets[$ackSequence]
-        $position = Get-I32 $Bytes ($index + 102)
+        $axisOffset = if ($SelectedAxis -eq "Gen1") { 38 } else { 78 }
+        $position = Get-I32 $Bytes ($index + $axisOffset + 24)
         $samples.Add([pscustomobject]@{
             TimeSeconds = $target.TimeSeconds
             TargetMillidegrees = $target.TargetMillidegrees
             PositionMillidegrees = $position
             ErrorMillidegrees = $position - $target.TargetMillidegrees
-            SpeedRpm = Get-I16 $Bytes ($index + 106)
-            MotorStatusFlags = $Bytes[$index + 112]
+            SpeedRpm = Get-I16 $Bytes ($index + $axisOffset + 28)
+            MotorStatusFlags = $Bytes[$index + $axisOffset + 34]
             Tracking = $target.Tracking
         })
     }
@@ -210,10 +226,20 @@ function Invoke-RateStage {
     param([int]$RateHz)
 
     $baseline = Invoke-ZdtTool -Action "Status"
-    if (-not $baseline.Gen2Online -or -not $baseline.Gen2Enabled) {
-        throw "Gen2 must be online and enabled before rate testing."
+    $onlineProperty = "${Axis}Online"
+    $enabledProperty = "${Axis}Enabled"
+    $positionProperty = "${Axis}PositionMillidegrees"
+    $txProperty = "${Axis}TxCommandCount"
+    $responseProperty = "${Axis}ResponseCount"
+    $timeoutProperty = "${Axis}TimeoutCount"
+    $invalidProperty = "${Axis}InvalidResponseCount"
+    $stalledProperty = "${Axis}Stalled"
+    $protectedProperty = "${Axis}StallProtected"
+    if (-not $baseline.$onlineProperty -or
+        -not $baseline.$enabledProperty) {
+        throw "$Axis must be online and enabled before rate testing."
     }
-    $center = [int]$baseline.Gen2PositionMillidegrees
+    $center = [int]$baseline.$positionProperty
     $periodSeconds = 1.0 / $RateHz
     $statusPeriodSeconds = 0.05
     $statusTargets = @{}
@@ -305,7 +331,7 @@ function Invoke-RateStage {
 
     [byte[]]$capturedBytes = $capture.ToArray()
     $capture.Dispose()
-    $samples = @(Get-TrackingSamples $capturedBytes $statusTargets)
+    $samples = @(Get-TrackingSamples $capturedBytes $statusTargets $Axis)
     $trackingSamples = @($samples | Where-Object Tracking)
     $final = Invoke-ZdtTool -Action "Status"
     $errors = @($trackingSamples | ForEach-Object ErrorMillidegrees)
@@ -322,21 +348,22 @@ function Invoke-RateStage {
         [double]::PositiveInfinity
     }
     $transmitted = [int](
-        $final.Gen2TxCommandCount - $baseline.Gen2TxCommandCount - 1)
+        $final.$txProperty - $baseline.$txProperty - 1)
     $actualRate = $transmitted / $DurationSeconds
     $finalError = [Math]::Abs(
-        $final.Gen2PositionMillidegrees - $center)
-    $transportStable = $final.Gen2Online -and
-        (-not $final.Gen2Stalled) -and
-        (-not $final.Gen2StallProtected) -and
-        ($final.Gen2InvalidResponseCount -eq
-            $baseline.Gen2InvalidResponseCount) -and
-        ($final.Gen2TimeoutCount -eq $baseline.Gen2TimeoutCount) -and
+        $final.$positionProperty - $center)
+    $transportStable = $final.$onlineProperty -and
+        (-not $final.$stalledProperty) -and
+        (-not $final.$protectedProperty) -and
+        ($final.$invalidProperty -eq $baseline.$invalidProperty) -and
+        ($final.$timeoutProperty -eq $baseline.$timeoutProperty) -and
         ($actualRate -ge (0.9 * $RateHz)) -and
         ($trackingSamples.Count -ge 10) -and
         ($finalError -le 1000)
 
     $result = [pscustomobject]@{
+        Axis = $Axis
+        PositionInterruptEnabled = [bool]$AllowGen1PositionInterrupt
         RequestedHz = $RateHz
         HostSent = $motionSent
         HostSkipped = $skipped
@@ -346,11 +373,10 @@ function Invoke-RateStage {
         RmsErrorDegrees = [Math]::Round($rmsError / 1000.0, 3)
         MaxErrorDegrees = [Math]::Round($maxError / 1000.0, 3)
         FinalErrorDegrees = [Math]::Round($finalError / 1000.0, 3)
-        ResponseDelta = $final.Gen2ResponseCount - $baseline.Gen2ResponseCount
-        TimeoutDelta = $final.Gen2TimeoutCount - $baseline.Gen2TimeoutCount
-        InvalidDelta = $final.Gen2InvalidResponseCount -
-            $baseline.Gen2InvalidResponseCount
-        Stalled = $final.Gen2Stalled
+        ResponseDelta = $final.$responseProperty - $baseline.$responseProperty
+        TimeoutDelta = $final.$timeoutProperty - $baseline.$timeoutProperty
+        InvalidDelta = $final.$invalidProperty - $baseline.$invalidProperty
+        Stalled = $final.$stalledProperty
         TransportStable = $transportStable
     }
     $results.Add($result)
@@ -362,15 +388,16 @@ try {
     Invoke-ZdtTool -Action "Select" | Out-Null
     Start-Sleep -Milliseconds 500
     $online = Invoke-ZdtTool -Action "Status"
-    if (-not $online.Gen2Online) {
-        throw "Gen2 is offline."
+    $onlineProperty = "${Axis}Online"
+    if (-not $online.$onlineProperty) {
+        throw "$Axis is offline."
     }
     Invoke-ZdtTool -Action "Enable" | Out-Null
     Start-Sleep -Milliseconds 500
 
     foreach ($rate in $RatesHz) {
         $result = Invoke-RateStage -RateHz $rate
-        if (-not $result.TransportStable) {
+        if (-not $result.TransportStable -and -not $ContinueAfterUnstable) {
             break
         }
         Start-Sleep -Milliseconds 500
@@ -397,5 +424,9 @@ if ($stableRates.Count -gt 0) {
     Write-Host ("Lowest RMS tracking error: {0} Hz ({1} deg)" -f `
         $bestTracking.RequestedHz, $bestTracking.RmsErrorDegrees)
 } else {
-    throw "No requested position update rate passed the transport criteria."
+    if ($ContinueAfterUnstable) {
+        Write-Warning "No requested rate passed the strict transport criteria."
+    } else {
+        throw "No requested position update rate passed the transport criteria."
+    }
 }

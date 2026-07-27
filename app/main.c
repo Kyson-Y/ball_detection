@@ -2,6 +2,7 @@
 #include "app_tasks.h"
 #include "bsp_encoder.h"
 #include "bsp_reset.h"
+#include "bsp_supply_voltage.h"
 #include "bsp_time.h"
 #include "chassis_actuator.h"
 #include "command_service.h"
@@ -23,6 +24,7 @@ int main(void)
     MotorProfile_Init();
     ChassisActuator_Init();
     BSP_Time_Init();
+    BSP_SupplyVoltage_Init();
     BSP_Encoder_Init();
     ZdtStepper_Init();
     SerialTx_Init();

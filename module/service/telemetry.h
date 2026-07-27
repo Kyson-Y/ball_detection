@@ -8,6 +8,7 @@
 #include "motor_profile.h"
 #include "system_health.h"
 #include "task.h"
+#include "zdt_protocol.h"
 
 #define TELEMETRY_PROTOCOL_VERSION        1U
 #define TELEMETRY_FRAME_TYPE_CONTROL      1U
@@ -28,11 +29,11 @@
 #define TELEMETRY_MOTOR_PROFILE_PAYLOAD_BYTES 36U
 #define TELEMETRY_MOTOR_PROFILE_FRAME_BYTES   52U
 #define TELEMETRY_ZDT_AXIS_SNAPSHOT_BYTES     40U
-#define TELEMETRY_ZDT_ACK_PAYLOAD_BYTES      104U
-#define TELEMETRY_ZDT_ACK_FRAME_BYTES        120U
+#define TELEMETRY_ZDT_ACK_PAYLOAD_BYTES      156U
+#define TELEMETRY_ZDT_ACK_FRAME_BYTES        172U
 #define TELEMETRY_HEALTH_PAYLOAD_BYTES    116U
 #define TELEMETRY_HEALTH_FRAME_BYTES      132U
-#define TELEMETRY_MAX_FRAME_BYTES         TELEMETRY_HEALTH_FRAME_BYTES
+#define TELEMETRY_MAX_FRAME_BYTES         TELEMETRY_ZDT_ACK_FRAME_BYTES
 #define TELEMETRY_TASK_STACK_WORDS ((configSTACK_DEPTH_TYPE) 256U)
 
 #define TELEMETRY_CONTROL_FLAG_TEST_SIGNAL (1UL << 0)
@@ -111,6 +112,18 @@ typedef struct {
     uint8_t status;
     uint8_t flags;
     telemetry_zdt_axis_snapshot_t axis_snapshot[2];
+    uint16_t gen2_bus_voltage_mv;
+    uint16_t gen2_phase_current_ma;
+    uint16_t gen2_encoder_linear;
+    int32_t gen2_target_position_counts;
+    int32_t gen2_position_error_counts;
+    uint8_t gen2_homing_status_flags;
+    uint8_t gen2_extended_valid_flags;
+    zdt_protocol_driver_config_t gen2_driver_config;
+    uint32_t pcb_battery_mv;
+    uint16_t pcb_battery_filtered_raw;
+    uint8_t pcb_battery_valid;
+    uint8_t reserved;
 } telemetry_zdt_ack_t;
 
 typedef struct {

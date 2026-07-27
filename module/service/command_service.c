@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "bsp_time.h"
+#include "bsp_supply_voltage.h"
 #include "chassis_actuator.h"
 #include "parameter_service.h"
 #include "serial_rx.h"
@@ -24,6 +25,9 @@
 #define COMMAND_ZDT_MAGIC         0x5A445442UL
 #define COMMAND_ZDT_MAGIC_INVERSE 0xA5BBABBDUL
 #define COMMAND_ZDT_FLAG_SUPPRESS_ACK (1U << 0)
+#define COMMAND_ZDT_FLAG_ALLOW_GEN1_POSITION_INTERRUPT (1U << 1)
+#define COMMAND_ZDT_FLAG_MASK (COMMAND_ZDT_FLAG_SUPPRESS_ACK | \
+    COMMAND_ZDT_FLAG_ALLOW_GEN1_POSITION_INTERRUPT)
 
 #define COMMAND_ZDT_AXIS_GEN1 0U
 #define COMMAND_ZDT_AXIS_GEN2 1U
@@ -236,7 +240,7 @@ static uint8_t Command_MapZdtStatus(
 static zdt_stepper_request_status_t Command_ApplyZdtAxis(
     uint8_t operation, zdt_stepper_axis_t axis, int32_t value,
     uint8_t position_mode, uint16_t speed_rpm,
-    uint32_t acceleration_rpm_s)
+    uint32_t acceleration_rpm_s, bool allow_position_interrupt)
 {
     switch (operation) {
         case COMMAND_ZDT_OP_ENABLE:
@@ -248,9 +252,11 @@ static zdt_stepper_request_status_t Command_ApplyZdtAxis(
             return ZdtStepper_RequestSpeed(
                 axis, (int16_t) value, acceleration_rpm_s);
         case COMMAND_ZDT_OP_POSITION:
-            return ZdtStepper_RequestPosition(axis, value, speed_rpm,
+            return ZdtStepper_RequestPositionWithInterrupt(
+                axis, value, speed_rpm,
                 acceleration_rpm_s,
-                (zdt_position_mode_t) position_mode);
+                (zdt_position_mode_t) position_mode,
+                allow_position_interrupt);
         case COMMAND_ZDT_OP_STOP:
             return ZdtStepper_RequestStop(axis);
         default:
@@ -325,6 +331,9 @@ static void Command_HandleZdtFrame(const uint8_t *payload)
     int32_t value = Command_GetI32(&payload[16]);
     uint16_t speed_rpm = Command_GetU16(&payload[20]);
     uint32_t acceleration_rpm_s = Command_GetU32(&payload[24]);
+    bool allow_gen1_position_interrupt =
+        (command_flags &
+         COMMAND_ZDT_FLAG_ALLOW_GEN1_POSITION_INTERRUPT) != 0U;
     uint8_t status = COMMAND_ZDT_STATUS_ACCEPTED;
 
     memset(&ack, 0, sizeof(ack));
@@ -337,7 +346,11 @@ static void Command_HandleZdtFrame(const uint8_t *payload)
         (magic_inverse != COMMAND_ZDT_MAGIC_INVERSE) ||
         (ack.sequence == 0U)) {
         status = COMMAND_ZDT_STATUS_BAD_MAGIC;
-    } else if ((command_flags & ~COMMAND_ZDT_FLAG_SUPPRESS_ACK) != 0U) {
+    } else if ((command_flags & ~COMMAND_ZDT_FLAG_MASK) != 0U) {
+        status = COMMAND_ZDT_STATUS_BAD_OPERATION;
+    } else if (allow_gen1_position_interrupt &&
+               ((operation != COMMAND_ZDT_OP_POSITION) ||
+                (axis != COMMAND_ZDT_AXIS_GEN1))) {
         status = COMMAND_ZDT_STATUS_BAD_OPERATION;
     } else if (operation == COMMAND_ZDT_OP_SELECT) {
         if (!ZdtStepper_SelectBackupBackend()) {
@@ -353,22 +366,23 @@ static void Command_HandleZdtFrame(const uint8_t *payload)
     } else if (axis == COMMAND_ZDT_AXIS_GEN1) {
         status = Command_MapZdtStatus(Command_ApplyZdtAxis(operation,
             ZDT_STEPPER_AXIS_GEN1, value, position_mode,
-            speed_rpm, acceleration_rpm_s));
+            speed_rpm, acceleration_rpm_s,
+            allow_gen1_position_interrupt));
     } else if (axis == COMMAND_ZDT_AXIS_GEN2) {
         status = Command_MapZdtStatus(Command_ApplyZdtAxis(operation,
             ZDT_STEPPER_AXIS_GEN2, value, position_mode,
-            speed_rpm, acceleration_rpm_s));
+            speed_rpm, acceleration_rpm_s, false));
     } else if (axis == COMMAND_ZDT_AXIS_BOTH) {
         zdt_stepper_request_status_t first = Command_ApplyZdtAxis(
             operation, ZDT_STEPPER_AXIS_GEN1, value, position_mode,
-            speed_rpm, acceleration_rpm_s);
+            speed_rpm, acceleration_rpm_s, false);
 
         if (first != ZDT_STEPPER_REQUEST_ACCEPTED) {
             status = Command_MapZdtStatus(first);
         } else {
             zdt_stepper_request_status_t second = Command_ApplyZdtAxis(
                 operation, ZDT_STEPPER_AXIS_GEN2, value, position_mode,
-                speed_rpm, acceleration_rpm_s);
+                speed_rpm, acceleration_rpm_s, false);
             if (second != ZDT_STEPPER_REQUEST_ACCEPTED) {
                 ZdtStepper_DeselectBackupBackend();
                 status = COMMAND_ZDT_STATUS_PARTIAL;
@@ -392,6 +406,36 @@ static void Command_HandleZdtFrame(const uint8_t *payload)
         &ack.axis_snapshot[0], ZDT_STEPPER_AXIS_GEN1);
     Command_FillZdtAxisSnapshot(
         &ack.axis_snapshot[1], ZDT_STEPPER_AXIS_GEN2);
+    ack.gen2_bus_voltage_mv =
+        g_zdt_stepper_diag.axis[ZDT_STEPPER_AXIS_GEN2].bus_voltage_mv;
+    ack.gen2_phase_current_ma =
+        g_zdt_stepper_diag.axis[ZDT_STEPPER_AXIS_GEN2].phase_current_ma;
+    ack.gen2_encoder_linear =
+        g_zdt_stepper_diag.axis[ZDT_STEPPER_AXIS_GEN2].encoder_linear;
+    ack.gen2_target_position_counts =
+        g_zdt_stepper_diag.axis[ZDT_STEPPER_AXIS_GEN2]
+            .target_position_counts;
+    ack.gen2_position_error_counts =
+        g_zdt_stepper_diag.axis[ZDT_STEPPER_AXIS_GEN2]
+            .position_error_counts;
+    ack.gen2_homing_status_flags =
+        g_zdt_stepper_diag.axis[ZDT_STEPPER_AXIS_GEN2]
+            .homing_status_flags;
+    if (g_zdt_stepper_diag.axis[ZDT_STEPPER_AXIS_GEN2]
+            .system_status_valid != 0U) {
+        ack.gen2_extended_valid_flags |= 1U << 0;
+    }
+    if (g_zdt_stepper_diag.axis[ZDT_STEPPER_AXIS_GEN2]
+            .driver_config_valid != 0U) {
+        ack.gen2_extended_valid_flags |= 1U << 1;
+    }
+    ack.gen2_driver_config =
+        g_zdt_stepper_diag.axis[ZDT_STEPPER_AXIS_GEN2].driver_config;
+    ack.pcb_battery_mv = g_bsp_supply_voltage_diag.battery_mv;
+    ack.pcb_battery_filtered_raw =
+        g_bsp_supply_voltage_diag.filtered_raw;
+    ack.pcb_battery_valid =
+        g_bsp_supply_voltage_diag.last_conversion_ok;
     if ((command_flags & COMMAND_ZDT_FLAG_SUPPRESS_ACK) != 0U) {
         g_command_service_diag.zdt_ack_suppressed_count++;
     } else {

@@ -87,6 +87,19 @@ static void TestDefaultIsSilent(void)
         ZDT_STEPPER_REQUEST_DISABLED);
 }
 
+static void TestReselectRestartsDiscovery(void)
+{
+    ZdtStepper_Init();
+    assert(ZdtStepper_SelectBackupBackend());
+    ZdtStepper_Service(20000U);
+    assert(CountFunction(0x1FU) == ZDT_STEPPER_AXIS_COUNT);
+
+    s_tx_count = 0U;
+    assert(ZdtStepper_SelectBackupBackend());
+    ZdtStepper_Service(40000U);
+    assert(CountFunction(0x1FU) == ZDT_STEPPER_AXIS_COUNT);
+}
+
 static void TestSpeedDeduplication(void)
 {
     ZdtStepper_Init();
@@ -112,6 +125,46 @@ static void TestSpeedDeduplication(void)
     assert(ZdtStepper_RequestSpeed(
         ZDT_STEPPER_AXIS_GEN2, 0, 500U) ==
         ZDT_STEPPER_REQUEST_ACCEPTED);
+}
+
+static void TestGeneration2SpeedRefresh(void)
+{
+    ZdtStepper_Init();
+    assert(ZdtStepper_SelectBackupBackend());
+    assert(ZdtStepper_RequestSpeed(
+        ZDT_STEPPER_AXIS_GEN2, 70, 1000U) ==
+        ZDT_STEPPER_REQUEST_ACCEPTED);
+    ZdtStepper_Service(2000U);
+    assert(ZdtStepper_RequestSpeed(
+        ZDT_STEPPER_AXIS_GEN2, 70, 1000U) ==
+        ZDT_STEPPER_REQUEST_ACCEPTED);
+    ZdtStepper_Service(4000U);
+    assert(CountFunction(0xF6U) == 2U);
+}
+
+static void TestGeneration1DuplicateRefreshesLease(void)
+{
+    ZdtStepper_Init();
+    assert(ZdtStepper_SelectBackupBackend());
+    assert(ZdtStepper_RequestSpeed(
+        ZDT_STEPPER_AXIS_GEN1, 70, 1000U) ==
+        ZDT_STEPPER_REQUEST_ACCEPTED);
+    ZdtStepper_Service(20000U);
+    assert(CountFunction(0xF6U) == 1U);
+
+    ZdtStepper_Service(1000000U);
+    assert(ZdtStepper_RequestSpeed(
+        ZDT_STEPPER_AXIS_GEN1, 70, 1000U) ==
+        ZDT_STEPPER_REQUEST_DUPLICATE);
+    ZdtStepper_Service(1520000U);
+    assert(CountFunction(0xFEU) == 0U);
+    assert(g_zdt_stepper_diag.axis[ZDT_STEPPER_AXIS_GEN1]
+        .speed_lease_expired_count == 0U);
+
+    ZdtStepper_Service(2520000U);
+    assert(CountFunction(0xFEU) == 1U);
+    assert(g_zdt_stepper_diag.axis[ZDT_STEPPER_AXIS_GEN1]
+        .speed_lease_expired_count == 1U);
 }
 
 static void TestGenerationPositionPolicy(void)
@@ -152,6 +205,33 @@ static void TestGeneration2HighRateAndCoalescing(void)
     assert(CountFunction(0xFDU) == 1U);
     assert(ZdtStepper_RequestPosition(ZDT_STEPPER_AXIS_GEN2,
         3000, 60U, 1000U, ZDT_POSITION_ABSOLUTE) ==
+        ZDT_STEPPER_REQUEST_ACCEPTED);
+    ZdtStepper_Service(3000U);
+    assert(CountFunction(0xFDU) == 1U);
+    ZdtStepper_Service(4000U);
+    assert(CountFunction(0xFDU) == 2U);
+}
+
+static void TestGeneration1ExplicitHighRatePosition(void)
+{
+    ZdtStepper_Init();
+    assert(ZdtStepper_SelectBackupBackend());
+    assert(ZdtStepper_RequestPositionWithInterrupt(
+        ZDT_STEPPER_AXIS_GEN1, 1000, 60U, 1000U,
+        ZDT_POSITION_ABSOLUTE, true) ==
+        ZDT_STEPPER_REQUEST_ACCEPTED);
+    assert(ZdtStepper_RequestPositionWithInterrupt(
+        ZDT_STEPPER_AXIS_GEN1, 2000, 60U, 1000U,
+        ZDT_POSITION_ABSOLUTE, true) ==
+        ZDT_STEPPER_REQUEST_ACCEPTED);
+    assert(g_zdt_stepper_diag.axis[ZDT_STEPPER_AXIS_GEN1]
+        .coalesced_request_count == 1U);
+
+    ZdtStepper_Service(2000U);
+    assert(CountFunction(0xFDU) == 1U);
+    assert(ZdtStepper_RequestPositionWithInterrupt(
+        ZDT_STEPPER_AXIS_GEN1, 3000, 60U, 1000U,
+        ZDT_POSITION_ABSOLUTE, true) ==
         ZDT_STEPPER_REQUEST_ACCEPTED);
     ZdtStepper_Service(3000U);
     assert(CountFunction(0xFDU) == 1U);
@@ -204,9 +284,13 @@ static void TestDeselectStopsAndDisables(void)
 int main(void)
 {
     TestDefaultIsSilent();
+    TestReselectRestartsDiscovery();
     TestSpeedDeduplication();
+    TestGeneration2SpeedRefresh();
+    TestGeneration1DuplicateRefreshesLease();
     TestGenerationPositionPolicy();
     TestGeneration2HighRateAndCoalescing();
+    TestGeneration1ExplicitHighRatePosition();
     TestSpeedLeaseStopsMotor();
     TestDeselectStopsAndDisables();
     return 0;

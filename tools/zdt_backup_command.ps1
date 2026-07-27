@@ -163,7 +163,7 @@ for ($index = 0; $index + 40 -le $bytes.Length; $index++) {
     $frameLength = 16 + $payloadLength
     if ($bytes[$index] -ne 0xA5 -or $bytes[$index + 1] -ne 0x5A -or
         $bytes[$index + 2] -ne 1 -or $bytes[$index + 3] -ne 9 -or
-        $payloadLength -notin @(24, 104) -or
+        $payloadLength -notin @(24, 104, 148, 156) -or
         $index + $frameLength -gt $bytes.Length) {
         continue
     }
@@ -194,7 +194,7 @@ for ($index = 0; $index + 40 -le $bytes.Length; $index++) {
         Gen2TimeoutCount = Get-U16 $bytes ($index + 32)
         CapturedBytes = $bytes.Length
     }
-    if ($payloadLength -eq 104) {
+    if ($payloadLength -ge 104) {
         foreach ($axisIndex in 0..1) {
             $prefix = if ($axisIndex -eq 0) { "Gen1" } else { "Gen2" }
             $axisOffset = $index + 38 + (40 * $axisIndex)
@@ -214,6 +214,67 @@ for ($index = 0; $index + 40 -le $bytes.Length; $index++) {
             $ackData["${prefix}Stalled"] = [bool]$bytes[$axisOffset + 37]
             $ackData["${prefix}StallProtected"] = [bool]$bytes[$axisOffset + 38]
         }
+    }
+    if ($payloadLength -ge 148) {
+        $extendedOffset = $index + 118
+        $targetCounts = Get-I32 $bytes ($extendedOffset + 6)
+        $errorCounts = Get-I32 $bytes ($extendedOffset + 10)
+        $validFlags = $bytes[$extendedOffset + 15]
+        $microstepRaw = $bytes[$extendedOffset + 21]
+        $windowRaw = Get-U16 $bytes ($extendedOffset + 42)
+        $ackData.Gen2BusVoltageMv = Get-U16 $bytes $extendedOffset
+        $ackData.Gen2PhaseCurrentMa = Get-U16 $bytes ($extendedOffset + 2)
+        $ackData.Gen2EncoderLinear = Get-U16 $bytes ($extendedOffset + 4)
+        $ackData.Gen2TargetPositionCounts = $targetCounts
+        $ackData.Gen2TargetPositionMillidegrees = [int32](
+            ([int64]$targetCounts * 360000) / 65536)
+        $ackData.Gen2PositionErrorCounts = $errorCounts
+        $ackData.Gen2PositionErrorMillidegrees = [int32](
+            ([int64]$errorCounts * 360000) / 65536)
+        $ackData.Gen2HomingStatusFlags = $bytes[$extendedOffset + 14]
+        $ackData.Gen2SystemStatusValid = [bool]($validFlags -band 0x01)
+        $ackData.Gen2DriverConfigValid = [bool]($validFlags -band 0x02)
+        $ackData.Gen2MotorType = $bytes[$extendedOffset + 16]
+        $ackData.Gen2PulsePortMode = $bytes[$extendedOffset + 17]
+        $ackData.Gen2CommunicationPortMode = $bytes[$extendedOffset + 18]
+        $ackData.Gen2EnableActiveLevel = $bytes[$extendedOffset + 19]
+        $ackData.Gen2DirectionActiveLevel = $bytes[$extendedOffset + 20]
+        $ackData.Gen2Microstep = if ($microstepRaw -eq 0) {
+            256
+        } else {
+            $microstepRaw
+        }
+        $ackData.Gen2InterpolationEnabled =
+            [bool]$bytes[$extendedOffset + 22]
+        $ackData.Gen2ConfigReserved = $bytes[$extendedOffset + 23]
+        $ackData.Gen2UartBaudCode = $bytes[$extendedOffset + 24]
+        $ackData.Gen2CanRateCode = $bytes[$extendedOffset + 25]
+        $ackData.Gen2ConfiguredAddress = $bytes[$extendedOffset + 26]
+        $ackData.Gen2ChecksumMode = $bytes[$extendedOffset + 27]
+        $ackData.Gen2ResponseMode = $bytes[$extendedOffset + 28]
+        $ackData.Gen2StallProtectionMode = $bytes[$extendedOffset + 29]
+        $ackData.Gen2OpenLoopCurrentMa = Get-U16 $bytes ($extendedOffset + 30)
+        $ackData.Gen2ClosedLoopCurrentMa = Get-U16 $bytes ($extendedOffset + 32)
+        $ackData.Gen2MaximumOutputVoltageSetting =
+            Get-U16 $bytes ($extendedOffset + 34)
+        $ackData.Gen2StallSpeedRpm = Get-U16 $bytes ($extendedOffset + 36)
+        $ackData.Gen2StallCurrentMa = Get-U16 $bytes ($extendedOffset + 38)
+        $ackData.Gen2StallTimeMs = Get-U16 $bytes ($extendedOffset + 40)
+        $ackData.Gen2PositionWindowTenthsDegree = $windowRaw
+        $ackData.Gen2PositionWindowDegrees = $windowRaw / 10.0
+    }
+    if ($payloadLength -ge 156) {
+        $pcbOffset = $index + 162
+        $pcbBatteryMv = Get-U32 $bytes $pcbOffset
+        $zdtBatteryMv = $ackData.Gen2BusVoltageMv
+        $ackData.PcbBatteryMv = $pcbBatteryMv
+        $ackData.PcbBatteryFilteredRaw = Get-U16 $bytes ($pcbOffset + 4)
+        $ackData.PcbBatteryValid = [bool]$bytes[$pcbOffset + 6]
+        $ackData.PcbMinusGen2Mv = [int32]$pcbBatteryMv - [int32]$zdtBatteryMv
+        $ackData.PcbVsGen2ErrorPercent = if ($zdtBatteryMv -ne 0) {
+            [math]::Round((([double]$pcbBatteryMv - $zdtBatteryMv) /
+                $zdtBatteryMv) * 100.0, 3)
+        } else { 0.0 }
     }
     $ack = [pscustomobject]$ackData
     break

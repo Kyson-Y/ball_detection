@@ -2,7 +2,7 @@
 
 ```yaml
 handoff_schema: 1
-updated_at: 2026-07-16T20:00:00+08:00
+updated_at: 2026-07-17T11:09:01+08:00
 updated_by: Codex
 status: complete
 ```
@@ -382,3 +382,72 @@ docs/worklogs/2026-07-15_phase2a_motor_profiles.md（未跟踪）
   分支提交；正式 `E:\ECHO` 工作目录未直接修改。
 - 详细设计与验收门禁见 `docs/hardware/ZDT_BACKUP_STEPPER.md` 和
   `docs/worklogs/2026-07-16_zdt_backup_stepper.md`。
+
+## 17. 2026-07-17 第一代张大头实机验收
+
+本节优先于第 16 节“第一代仍待验收”的旧描述。
+
+- 当前 worktree 为 `C:\Users\Auror\ECHO-zdt-x42s-work`，branch
+  `refs/heads/codex/zdt-dual-uart-stepper`，开始本轮时 HEAD 为
+  `13394531d72176ff3ccd47d3c0f36a590a643c87`；正式 `E:\ECHO` 未直接修改。
+- UART2 第一代接线：`PB15` 是 MCU TX，接驱动 RX；`PB16` 是 MCU RX，接驱动 TX；GND 共地。
+  地址 `0x01`、115200 8N1，实机版本 `firmware=3/hardware=130`。
+- 首轮 200 Hz / 70 rpm / 20 秒发现相同速度去重未刷新租约，造成 13 次周期性自动停止。
+  已修复为“同目标只刷新租约，不重发电机帧”，并增加单元测试。
+- 修复后 3995 个主机帧、20 秒平均 `67.62 rpm`，租约过期、超时、无效响应和堵转均为 0。
+  变化速度 `20/40/70/40/20 rpm` 的稳态平均为
+  `20.09/40.56/66.28/40.81/19.42 rpm`。
+- 第一代点到点位置 `+10 deg` 实测 `+9.965 deg`、约 `0.884 s` 到位；返回净误差
+  `0.264 deg`、约 `0.894 s` 到位。连续 10 Hz 位置覆盖只实发约 4.5 Hz，因此保留到位前 busy，
+  不把第一代位置模式用于高频云台跟踪。
+- 已增加默认关闭的第一代高频位置覆盖实验模式。400 Hz 请求可实发 `364.5 Hz` 且链路干净，
+  但 `acc=0` 时 200 Hz 的跟踪最好：2 秒 RMS `6.065 deg`，10 秒实发 `199.5 Hz`、RMS
+  `6.586 deg`、回中心误差 `0.033 deg`。第二代同轨迹 200 Hz RMS 约 `3.033 deg`。
+- 结论：两代都能稳定调度 200 Hz；第一代推荐 200 Hz、400 Hz 仅通信上限，第二代动态位置
+  跟踪明显更好。默认第一代 busy 策略不变，只有显式测试标志允许高频覆盖。
+- App 构建 0 Error / 0 Warning，Code=74,336、RO=3,424、RW=28、ZI=18,284；HEX SHA-256
+  `8CC20D81FB8DD9B9C7C742F54CCAB244511C539CC506D3C6056C39B57AFEBF8D`；已 program/verify/reset。
+- 最终板上状态：`backend_selected=false`、第一代 `enabled=false`、`motion_active=false`、
+  `speed=0`，超时/坏包/租约过期/堵转均为 0；第二代未连接且未使能。没有后台串口或 OpenOCD 会话。
+- 当前 dirty 文件均为本张大头分支的待提交实现、测试、工具和文档；`tmp/` 是手册渲染临时文件，
+  禁止加入提交。根目录测试 `*.obj` 已删除，测试产物只保留在 ignored `tests/artifacts/`。
+- 仍未验证：两代带载电流、温升、断线恢复、堵转保护触发和机械限位；第一代反向速度阶梯；
+  高频位置模式的电流、温升和机械冲击。
+- 最终验证：四个 PowerShell 工具 AST 通过；最新源码重编译后的 `zdt_protocol_test`、
+  `zdt_stepper_test` 均通过；App 0 Error / 0 Warning；`git diff --check` 无错误；没有 OpenOCD/Keil 会话。
+- 精确下一步：如用户明确要求提交，则逐文件暂存并排除 `tmp/`，禁止 `git add .`；提交后仍不得自动 push，
+  只有用户明确要求时才推送远端。
+
+## 18. 2026-07-28 正式 PCB 张大头复测
+
+本节优先于前文临时线路的 UART1 `PA8/PA9` 接线说明。
+
+- 当前 worktree：`C:\Users\Auror\ECHO-zdt-x42s-work`；branch：
+  `refs/heads/codex/zdt-dual-uart-stepper`；开始本轮时 HEAD 为
+  `13394531d72176ff3ccd47d3c0f36a590a643c87`。
+- PCB DAPLink 调试链为 UART0 `PA10/PA11` + DMA_CH3，230400 8N1，电脑端 `COM18`；已收到
+  12,460 字节遥测，证明该链路正常。
+- 第二代张大头保持 UART3 `PB2/PB3` + DMA_CH2，115200 8N1。第一代 UART2 `PB15/PB16`
+  与正式 ESP32 UART2 冲突，本轮不连接、不测试。
+- PCB 版固件已烧录并完成 77,792 字节 Flash 逐字节回读。HEX SHA-256 为
+  `88F1A05FE75531B23F62186580C4B4CC2A299233F925D453C2F53CE411230875`，回读 SHA-256 为
+  `1E723BF27F88A2C6A54F2355C4595F261F92A441C1D06348790F20394C25D09F`。
+- 当前 `backend_selected=false`，Gen1/Gen2 均未使能、未运动。Gen2 尚未接线，online=false，
+  查询/回包/超时均为 0；没有电机输出。
+- 精确下一步：接第二代 `PB2 TX -> RX`、`PB3 RX <- TX`、GND 共地并使用电机独立限流电源；
+  然后执行 `Select Gen2` 只读查询。版本、电压、电流、状态和通信诊断通过后，再由用户现场确认
+  机构安全并执行 `+10 deg / 30 rpm / 500 rpm/s` 与回原位测试。
+
+### 18.1 PCB 双路复测完成
+
+- 用户临时将 UART2 分配给第一代张大头，两代同时连接并完成复测；正式 ESP32 UART2 规划未变。
+- PB17/ADC1 电池采样已合入安全固件。PCB `16.321-16.329 V` 与第二代内部
+  `16.348-16.357 V` 相差 `19-34 mV`，误差 `0.12%-0.21%`。
+- 第一代 30 rpm、500 rpm/s：约 `0.038 -> 10.101 -> 0.005 deg`；第二代：约
+  `0.027 -> 10.036 -> 0.049 deg`。两路无堵转、无保护触发。
+- 最新 App/FreeRTOS full rebuild 0 Error / 0 Warning，Code=75,120、RO=3,432、RW=28、
+  ZI=18,380。HEX SHA-256 为
+  `A12D8760A48C82B515962242F316E6D9F4B6C7618BF49E998B0BB178952A88E9`；78,584 字节回读
+  SHA-256 为 `2065A16813A86CA51B1F96DFCC354CFF96E2F1D14093FF19867D106A8088C91B`。
+- 最终 `backend_selected=false`，两台均失能、速度 0、未运动、未堵转。版本/配置扩展回复仍未
+  通过解析，后续应抓取原始回复适配；普通位置、速度、状态和电压通信已稳定验证。

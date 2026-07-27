@@ -35,6 +35,10 @@ static void TestCommandEncoding(void)
         { 0x01U, 0xFEU, 0x98U, 0x00U, 0x6BU };
     static const uint8_t query_position[] =
         { 0x01U, 0x36U, 0x6BU };
+    static const uint8_t query_system_status[] =
+        { 0x01U, 0x43U, 0x7AU, 0x6BU };
+    static const uint8_t query_driver_config[] =
+        { 0x01U, 0x42U, 0x6CU, 0x6BU };
     static const uint8_t synchronous_start[] =
         { 0x00U, 0xFFU, 0x66U, 0x6BU };
     zdt_protocol_frame_t frame;
@@ -57,6 +61,16 @@ static void TestCommandEncoding(void)
     AssertFrame(&frame, query_position,
         (uint8_t) sizeof(query_position));
 
+    assert(ZdtProtocol_BuildQuery(
+        1U, ZDT_QUERY_SYSTEM_STATUS, &frame));
+    AssertFrame(&frame, query_system_status,
+        (uint8_t) sizeof(query_system_status));
+
+    assert(ZdtProtocol_BuildQuery(
+        1U, ZDT_QUERY_DRIVER_CONFIG, &frame));
+    AssertFrame(&frame, query_driver_config,
+        (uint8_t) sizeof(query_driver_config));
+
     assert(ZdtProtocol_BuildSynchronousStart(0U, &frame));
     AssertFrame(&frame, synchronous_start,
         (uint8_t) sizeof(synchronous_start));
@@ -75,7 +89,22 @@ static void TestResponseDecoding(void)
         { 0x01U, 0x36U, 0x01U, 0x00U, 0x01U, 0x00U, 0x00U, 0x6BU };
     static const uint8_t status[] =
         { 0x01U, 0x3AU, 0x03U, 0x6BU };
+    static const uint8_t system_status[] = {
+        0x01U, 0x43U, 0x1FU, 0x09U, 0x5CU, 0x67U, 0x00U, 0x03U,
+        0x43U, 0xEBU, 0x01U, 0x00U, 0x01U, 0x00U, 0x00U, 0x00U,
+        0x00U, 0x00U, 0x00U, 0x00U, 0x01U, 0x00U, 0x00U, 0x01U,
+        0x00U, 0x00U, 0x00U, 0x08U, 0x03U, 0x03U, 0x6BU
+    };
+    static const uint8_t driver_config[] = {
+        0x01U, 0x42U, 0x21U, 0x15U, 0x19U, 0x02U, 0x02U, 0x02U,
+        0x00U, 0x10U, 0x01U, 0x00U, 0x04U, 0xB0U, 0x0BU, 0x80U,
+        0x0FU, 0xA0U, 0x05U, 0x07U, 0x01U, 0x00U, 0x01U, 0x01U,
+        0x00U, 0x08U, 0x08U, 0x98U, 0x07U, 0xD0U, 0x00U, 0x08U,
+        0x6BU
+    };
     zdt_protocol_reply_t reply;
+    zdt_protocol_system_status_t full_status;
+    zdt_protocol_driver_config_t config;
     int32_t position_counts;
     int16_t speed_rpm;
     uint8_t status_flags;
@@ -97,6 +126,32 @@ static void TestResponseDecoding(void)
     assert(ZdtProtocol_ParseMotorStatus(
         status, (uint8_t) sizeof(status), 1U, &status_flags));
     assert(status_flags == 0x03U);
+
+    assert(ZdtProtocol_ParseSystemStatus(system_status,
+        (uint8_t) sizeof(system_status), 1U, &full_status));
+    assert(full_status.bus_voltage_mv == 23655U);
+    assert(full_status.phase_current_ma == 3U);
+    assert(full_status.encoder_linear == 17387U);
+    assert(full_status.target_position_counts == -65536);
+    assert(full_status.speed_rpm == 0);
+    assert(full_status.position_counts == 65536);
+    assert(full_status.position_error_counts == -8);
+    assert(full_status.homing_status_flags == 0x03U);
+    assert(full_status.motor_status_flags == 0x03U);
+
+    assert(ZdtProtocol_ParseDriverConfig(driver_config,
+        (uint8_t) sizeof(driver_config), 1U, &config));
+    assert(config.motor_type == 0x19U);
+    assert(config.communication_port_mode == 2U);
+    assert(config.microstep == 16U);
+    assert(config.open_loop_current_ma == 1200U);
+    assert(config.closed_loop_current_ma == 2944U);
+    assert(config.maximum_output_voltage_setting == 4000U);
+    assert(config.uart_baud_code == 5U);
+    assert(config.address == 1U);
+    assert(config.stall_current_ma == 2200U);
+    assert(config.stall_time_ms == 2000U);
+    assert(config.position_window_tenths_degree == 8U);
     assert(!ZdtProtocol_ParseSpeed(
         speed, (uint8_t) sizeof(speed), 2U, &speed_rpm));
 }

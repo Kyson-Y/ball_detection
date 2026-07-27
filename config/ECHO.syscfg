@@ -7,6 +7,8 @@
 // @cliArgs --board /ti/boards/LP_MSPM0G3507 --rtos freertos
 
 const ProjectConfig = scripting.addModule("/ti/project_config/ProjectConfig");
+const ADC12  = scripting.addModule("/ti/driverlib/ADC12", {}, false);
+const ADC1   = ADC12.addInstance();
 const GPIO   = scripting.addModule("/ti/driverlib/GPIO", {}, false);
 const GPIO1  = GPIO.addInstance();
 const GPIO2  = GPIO.addInstance();
@@ -60,6 +62,15 @@ GPIO2.associatedPins[0].pin.$assign = "PB6";
 GPIO2.associatedPins[1].$name       = "RIGHT_ENCODER_E2B";
 GPIO2.associatedPins[1].direction   = "INPUT";
 GPIO2.associatedPins[1].pin.$assign = "PB7";
+
+ADC1.$name                      = "SUPPLY_ADC";
+ADC1.sampClkSrc                 = "DL_ADC12_CLOCK_ULPCLK";
+ADC1.sampClkDiv                 = "DL_ADC12_CLOCK_DIVIDE_8";
+ADC1.adcMem0chansel             = "DL_ADC12_INPUT_CHAN_4";
+ADC1.sampleTime0                = "40 us";
+ADC1.powerDownMode              = "DL_ADC12_POWER_DOWN_MODE_MANUAL";
+ADC1.peripheral.$assign         = "ADC1";
+ADC1.peripheral.adcPin4.$assign = "PB17";
 
 PWM1.$name                          = "CHASSIS_PWM";
 PWM1.clockSource                    = "MFCLK";
@@ -128,31 +139,31 @@ I2C1.sclPinConfig.$name              = "OLED_I2C_SCL_PIN";
 I2C1.sclPinConfig.enableConfig       = true;
 
 const UART   = scripting.addModule("/ti/driverlib/UART", {}, false);
-const UART1  = UART.addInstance();
+const UART0  = UART.addInstance();
 const UART2  = UART.addInstance();
 const UART3  = UART.addInstance();
 
 const ECHO_DEBUG_UART_BAUD = 230400;
 const ECHO_ZDT_UART_BAUD = 115200;
 
-UART1.$name = "DEBUG_UART";
-UART1.profile = "CONFIG_PROFILE_1";
-UART1.peripheral.$assign = "UART1";
-UART1.targetBaudRate = ECHO_DEBUG_UART_BAUD;
-UART1.enableInternalLoopback = false;
-UART1.enabledInterrupts = ["DMA_DONE_TX", "EOT_DONE", "RX"];
-UART1.enableFIFO = true;
-UART1.txFifoThreshold = "DL_UART_TX_FIFO_LEVEL_ONE_ENTRY";
-UART1.enabledDMATXTriggers = "DL_UART_DMA_INTERRUPT_TX";
-UART1.enableDMATX = true;
-UART1.peripheral.rxPin.$assign = "PA9";
-UART1.peripheral.txPin.$assign = "PA8";
-UART1.DMA_CHANNEL_TX.$name = "DEBUG_UART_TX_DMA";
-UART1.DMA_CHANNEL_TX.peripheral.$assign = "DMA_CH3";
-UART1.DMA_CHANNEL_TX.addressMode = "b2f";
-UART1.DMA_CHANNEL_TX.srcIncDec = "INCREMENT";
-UART1.DMA_CHANNEL_TX.dstLength = "BYTE";
-UART1.DMA_CHANNEL_TX.srcLength = "BYTE";
+UART0.$name = "DEBUG_UART";
+UART0.profile = "CONFIG_PROFILE_1";
+UART0.peripheral.$assign = "UART0";
+UART0.targetBaudRate = ECHO_DEBUG_UART_BAUD;
+UART0.enableInternalLoopback = false;
+UART0.enabledInterrupts = ["DMA_DONE_TX", "EOT_DONE", "RX"];
+UART0.enableFIFO = true;
+UART0.txFifoThreshold = "DL_UART_TX_FIFO_LEVEL_ONE_ENTRY";
+UART0.enabledDMATXTriggers = "DL_UART_DMA_INTERRUPT_TX";
+UART0.enableDMATX = true;
+UART0.peripheral.rxPin.$assign = "PA11";
+UART0.peripheral.txPin.$assign = "PA10";
+UART0.DMA_CHANNEL_TX.$name = "DEBUG_UART_TX_DMA";
+UART0.DMA_CHANNEL_TX.peripheral.$assign = "DMA_CH3";
+UART0.DMA_CHANNEL_TX.addressMode = "b2f";
+UART0.DMA_CHANNEL_TX.srcIncDec = "INCREMENT";
+UART0.DMA_CHANNEL_TX.dstLength = "BYTE";
+UART0.DMA_CHANNEL_TX.srcLength = "BYTE";
 
 UART2.$name = "ZDT_GEN1_UART";
 UART2.profile = "CONFIG_PROFILE_1";

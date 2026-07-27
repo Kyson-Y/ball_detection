@@ -303,6 +303,47 @@ static uint16_t Telemetry_EncodeZdtAck(
         axis_payload[38] = snapshot->stall_protected;
         axis_payload[39] = snapshot->reserved;
     }
+    Telemetry_PutU16(&payload[104], ack->gen2_bus_voltage_mv);
+    Telemetry_PutU16(&payload[106], ack->gen2_phase_current_ma);
+    Telemetry_PutU16(&payload[108], ack->gen2_encoder_linear);
+    Telemetry_PutU32(&payload[110],
+        (uint32_t) ack->gen2_target_position_counts);
+    Telemetry_PutU32(&payload[114],
+        (uint32_t) ack->gen2_position_error_counts);
+    payload[118] = ack->gen2_homing_status_flags;
+    payload[119] = ack->gen2_extended_valid_flags;
+    payload[120] = ack->gen2_driver_config.motor_type;
+    payload[121] = ack->gen2_driver_config.pulse_port_mode;
+    payload[122] = ack->gen2_driver_config.communication_port_mode;
+    payload[123] = ack->gen2_driver_config.enable_active_level;
+    payload[124] = ack->gen2_driver_config.direction_active_level;
+    payload[125] = ack->gen2_driver_config.microstep;
+    payload[126] = ack->gen2_driver_config.interpolation_enabled;
+    payload[127] = ack->gen2_driver_config.reserved;
+    payload[128] = ack->gen2_driver_config.uart_baud_code;
+    payload[129] = ack->gen2_driver_config.can_rate_code;
+    payload[130] = ack->gen2_driver_config.address;
+    payload[131] = ack->gen2_driver_config.checksum_mode;
+    payload[132] = ack->gen2_driver_config.response_mode;
+    payload[133] = ack->gen2_driver_config.stall_protection_mode;
+    Telemetry_PutU16(&payload[134],
+        ack->gen2_driver_config.open_loop_current_ma);
+    Telemetry_PutU16(&payload[136],
+        ack->gen2_driver_config.closed_loop_current_ma);
+    Telemetry_PutU16(&payload[138],
+        ack->gen2_driver_config.maximum_output_voltage_setting);
+    Telemetry_PutU16(&payload[140],
+        ack->gen2_driver_config.stall_speed_rpm);
+    Telemetry_PutU16(&payload[142],
+        ack->gen2_driver_config.stall_current_ma);
+    Telemetry_PutU16(&payload[144],
+        ack->gen2_driver_config.stall_time_ms);
+    Telemetry_PutU16(&payload[146],
+        ack->gen2_driver_config.position_window_tenths_degree);
+    Telemetry_PutU32(&payload[148], ack->pcb_battery_mv);
+    Telemetry_PutU16(&payload[152], ack->pcb_battery_filtered_raw);
+    payload[154] = ack->pcb_battery_valid;
+    payload[155] = ack->reserved;
     return Telemetry_EndFrame(frame, payload_length);
 }
 

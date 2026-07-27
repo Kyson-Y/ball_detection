@@ -4,6 +4,7 @@
 
 #include "FreeRTOS.h"
 #include "bsp_led.h"
+#include "bsp_supply_voltage.h"
 #include "bsp_time.h"
 #include "command_service.h"
 #include "motor_profile.h"
@@ -20,6 +21,7 @@
 #define SERVICE_HEARTBEAT_TIMEOUT pdMS_TO_TICKS(1500U)
 #define SERVICE_HEALTH_REFRESH_PERIOD pdMS_TO_TICKS(100U)
 #define SERVICE_HEALTH_TELEMETRY_PERIOD pdMS_TO_TICKS(1000U)
+#define SERVICE_SUPPLY_SAMPLE_PERIOD pdMS_TO_TICKS(100U)
 
 void ServiceTask_Entry(void *context)
 {
@@ -28,6 +30,7 @@ void ServiceTask_Entry(void *context)
     TickType_t last_heartbeat_time = last_wake_time;
     TickType_t last_health_refresh_time = last_wake_time;
     TickType_t last_health_telemetry_time = last_wake_time;
+    TickType_t last_supply_sample_time = last_wake_time;
     uint32_t heartbeat_sequence = 0U;
 
     configASSERT(heartbeat_queue != NULL);
@@ -43,6 +46,14 @@ void ServiceTask_Entry(void *context)
         CommandService_ProcessRx();
         ZdtStepper_Service(BSP_Time_GetUs());
         SerialTx_Service();
+
+        if ((TickType_t) (now - last_supply_sample_time) >=
+            SERVICE_SUPPLY_SAMPLE_PERIOD) {
+            bsp_supply_voltage_sample_t supply_sample;
+
+            last_supply_sample_time = now;
+            (void) BSP_SupplyVoltage_Sample(&supply_sample);
+        }
 
         if (xQueueReceive(
                 heartbeat_queue, &heartbeat_sequence, 0U) == pdPASS) {

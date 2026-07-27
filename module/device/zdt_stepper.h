@@ -47,13 +47,24 @@ typedef struct {
     uint32_t response_timeout_count;
     uint32_t position_reached_count;
     uint32_t speed_lease_expired_count;
+    uint32_t system_status_response_count;
+    uint32_t driver_config_response_count;
     uint32_t last_response_us;
     int32_t position_counts;
     int32_t position_millidegrees;
+    int32_t target_position_counts;
+    int32_t target_position_millidegrees;
+    int32_t position_error_counts;
+    int32_t position_error_millidegrees;
     int16_t speed_rpm;
+    uint16_t bus_voltage_mv;
+    uint16_t phase_current_ma;
+    uint16_t encoder_linear;
     uint16_t firmware_version;
     uint16_t hardware_version;
+    zdt_protocol_driver_config_t driver_config;
     uint8_t motor_status_flags;
+    uint8_t homing_status_flags;
     uint8_t last_function;
     uint8_t last_reply_status;
     uint8_t online;
@@ -62,6 +73,8 @@ typedef struct {
     uint8_t stalled;
     uint8_t stall_protected;
     uint8_t pending_command;
+    uint8_t system_status_valid;
+    uint8_t driver_config_valid;
     uint8_t initialized;
 } zdt_stepper_axis_diagnostics_t;
 
@@ -94,6 +107,10 @@ zdt_stepper_request_status_t ZdtStepper_RequestPosition(
     zdt_stepper_axis_t axis, int32_t position_millidegrees,
     uint16_t speed_rpm, uint32_t acceleration_rpm_s,
     zdt_position_mode_t mode);
+zdt_stepper_request_status_t ZdtStepper_RequestPositionWithInterrupt(
+    zdt_stepper_axis_t axis, int32_t position_millidegrees,
+    uint16_t speed_rpm, uint32_t acceleration_rpm_s,
+    zdt_position_mode_t mode, bool allow_position_interrupt);
 zdt_stepper_request_status_t ZdtStepper_RequestStop(
     zdt_stepper_axis_t axis);
 

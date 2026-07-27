@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 #define ZDT_PROTOCOL_CHECK_BYTE      0x6BU
-#define ZDT_PROTOCOL_MAX_FRAME_BYTES 20U
+#define ZDT_PROTOCOL_MAX_FRAME_BYTES 40U
 #define ZDT_PROTOCOL_MAX_SPEED_RPM   3000U
 
 typedef enum {
@@ -30,8 +30,46 @@ typedef enum {
     ZDT_QUERY_FIRMWARE_VERSION = 0x1FU,
     ZDT_QUERY_REALTIME_SPEED = 0x35U,
     ZDT_QUERY_REALTIME_POSITION = 0x36U,
-    ZDT_QUERY_MOTOR_STATUS = 0x3AU
+    ZDT_QUERY_MOTOR_STATUS = 0x3AU,
+    ZDT_QUERY_DRIVER_CONFIG = 0x42U,
+    ZDT_QUERY_SYSTEM_STATUS = 0x43U
 } zdt_query_t;
+
+typedef struct {
+    uint16_t bus_voltage_mv;
+    uint16_t phase_current_ma;
+    uint16_t encoder_linear;
+    int32_t target_position_counts;
+    int16_t speed_rpm;
+    int32_t position_counts;
+    int32_t position_error_counts;
+    uint8_t homing_status_flags;
+    uint8_t motor_status_flags;
+} zdt_protocol_system_status_t;
+
+typedef struct {
+    uint8_t motor_type;
+    uint8_t pulse_port_mode;
+    uint8_t communication_port_mode;
+    uint8_t enable_active_level;
+    uint8_t direction_active_level;
+    uint8_t microstep;
+    uint8_t interpolation_enabled;
+    uint8_t reserved;
+    uint16_t open_loop_current_ma;
+    uint16_t closed_loop_current_ma;
+    uint16_t maximum_output_voltage_setting;
+    uint8_t uart_baud_code;
+    uint8_t can_rate_code;
+    uint8_t address;
+    uint8_t checksum_mode;
+    uint8_t response_mode;
+    uint8_t stall_protection_mode;
+    uint16_t stall_speed_rpm;
+    uint16_t stall_current_ma;
+    uint16_t stall_time_ms;
+    uint16_t position_window_tenths_degree;
+} zdt_protocol_driver_config_t;
 
 typedef struct {
     uint8_t bytes[ZDT_PROTOCOL_MAX_FRAME_BYTES];
@@ -71,5 +109,9 @@ bool ZdtProtocol_ParsePosition(const uint8_t *data, uint8_t length,
     uint8_t expected_address, int32_t *position_counts);
 bool ZdtProtocol_ParseMotorStatus(const uint8_t *data, uint8_t length,
     uint8_t expected_address, uint8_t *status_flags);
+bool ZdtProtocol_ParseSystemStatus(const uint8_t *data, uint8_t length,
+    uint8_t expected_address, zdt_protocol_system_status_t *status);
+bool ZdtProtocol_ParseDriverConfig(const uint8_t *data, uint8_t length,
+    uint8_t expected_address, zdt_protocol_driver_config_t *config);
 
 #endif

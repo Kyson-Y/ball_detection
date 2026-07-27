@@ -196,6 +196,8 @@ bool ZdtProtocol_BuildQuery(uint8_t address, zdt_query_t query,
         case ZDT_QUERY_REALTIME_SPEED:
         case ZDT_QUERY_REALTIME_POSITION:
         case ZDT_QUERY_MOTOR_STATUS:
+        case ZDT_QUERY_DRIVER_CONFIG:
+        case ZDT_QUERY_SYSTEM_STATUS:
             break;
         default:
             return false;
@@ -203,8 +205,18 @@ bool ZdtProtocol_BuildQuery(uint8_t address, zdt_query_t query,
 
     frame->bytes[0] = address;
     frame->bytes[1] = (uint8_t) query;
-    frame->bytes[2] = ZDT_PROTOCOL_CHECK_BYTE;
-    frame->length = 3U;
+    if (query == ZDT_QUERY_DRIVER_CONFIG) {
+        frame->bytes[2] = 0x6CU;
+        frame->bytes[3] = ZDT_PROTOCOL_CHECK_BYTE;
+        frame->length = 4U;
+    } else if (query == ZDT_QUERY_SYSTEM_STATUS) {
+        frame->bytes[2] = 0x7AU;
+        frame->bytes[3] = ZDT_PROTOCOL_CHECK_BYTE;
+        frame->length = 4U;
+    } else {
+        frame->bytes[2] = ZDT_PROTOCOL_CHECK_BYTE;
+        frame->length = 3U;
+    }
     return true;
 }
 
@@ -285,5 +297,92 @@ bool ZdtProtocol_ParseMotorStatus(const uint8_t *data, uint8_t length,
     }
 
     *status_flags = data[2];
+    return true;
+}
+
+static bool ZdtProtocol_ParseSignedU32(
+    uint8_t sign, const uint8_t *data, int32_t *value)
+{
+    uint32_t magnitude;
+
+    if ((sign > 1U) || (data == NULL) || (value == NULL)) {
+        return false;
+    }
+    magnitude = ZdtProtocol_GetU32Be(data);
+    if (magnitude > (uint32_t) INT32_MAX) {
+        return false;
+    }
+    *value = (sign != 0U) ? -(int32_t) magnitude : (int32_t) magnitude;
+    return true;
+}
+
+bool ZdtProtocol_ParseSystemStatus(const uint8_t *data, uint8_t length,
+    uint8_t expected_address, zdt_protocol_system_status_t *status)
+{
+    uint16_t speed_magnitude;
+
+    if ((data == NULL) || (status == NULL) || (length != 31U) ||
+        (data[0] != expected_address) ||
+        (data[1] != (uint8_t) ZDT_QUERY_SYSTEM_STATUS) ||
+        (data[2] != 0x1FU) || (data[3] != 0x09U) ||
+        (data[30] != ZDT_PROTOCOL_CHECK_BYTE) ||
+        (data[15] > 1U) || (data[18] > 1U) || (data[23] > 1U)) {
+        return false;
+    }
+    speed_magnitude = ZdtProtocol_GetU16Be(&data[16]);
+    if (speed_magnitude > (uint16_t) INT16_MAX ||
+        !ZdtProtocol_ParseSignedU32(
+            data[10], &data[11], &status->target_position_counts) ||
+        !ZdtProtocol_ParseSignedU32(
+            data[18], &data[19], &status->position_counts) ||
+        !ZdtProtocol_ParseSignedU32(
+            data[23], &data[24], &status->position_error_counts)) {
+        return false;
+    }
+
+    status->bus_voltage_mv = ZdtProtocol_GetU16Be(&data[4]);
+    status->phase_current_ma = ZdtProtocol_GetU16Be(&data[6]);
+    status->encoder_linear = ZdtProtocol_GetU16Be(&data[8]);
+    status->speed_rpm = (data[15] != 0U) ?
+        -(int16_t) speed_magnitude : (int16_t) speed_magnitude;
+    status->homing_status_flags = data[28];
+    status->motor_status_flags = data[29];
+    return true;
+}
+
+bool ZdtProtocol_ParseDriverConfig(const uint8_t *data, uint8_t length,
+    uint8_t expected_address, zdt_protocol_driver_config_t *config)
+{
+    if ((data == NULL) || (config == NULL) || (length != 33U) ||
+        (data[0] != expected_address) ||
+        (data[1] != (uint8_t) ZDT_QUERY_DRIVER_CONFIG) ||
+        (data[2] != 0x21U) || (data[3] != 0x15U) ||
+        (data[32] != ZDT_PROTOCOL_CHECK_BYTE)) {
+        return false;
+    }
+
+    config->motor_type = data[4];
+    config->pulse_port_mode = data[5];
+    config->communication_port_mode = data[6];
+    config->enable_active_level = data[7];
+    config->direction_active_level = data[8];
+    config->microstep = data[9];
+    config->interpolation_enabled = data[10];
+    config->reserved = data[11];
+    config->open_loop_current_ma = ZdtProtocol_GetU16Be(&data[12]);
+    config->closed_loop_current_ma = ZdtProtocol_GetU16Be(&data[14]);
+    config->maximum_output_voltage_setting =
+        ZdtProtocol_GetU16Be(&data[16]);
+    config->uart_baud_code = data[18];
+    config->can_rate_code = data[19];
+    config->address = data[20];
+    config->checksum_mode = data[21];
+    config->response_mode = data[22];
+    config->stall_protection_mode = data[23];
+    config->stall_speed_rpm = ZdtProtocol_GetU16Be(&data[24]);
+    config->stall_current_ma = ZdtProtocol_GetU16Be(&data[26]);
+    config->stall_time_ms = ZdtProtocol_GetU16Be(&data[28]);
+    config->position_window_tenths_degree =
+        ZdtProtocol_GetU16Be(&data[30]);
     return true;
 }

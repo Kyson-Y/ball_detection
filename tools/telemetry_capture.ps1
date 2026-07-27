@@ -33,7 +33,7 @@ $HealthPayloadLength = 116
 $ActuatorAckPayloadLength = 16
 $MotorProfilePayloadLength = 36
 $MinimumFrameLength = 16
-$MaximumPayloadLength = 128
+$MaximumPayloadLength = 160
 [uint64]$U32HalfRange = 2147483648
 
 function Get-Crc16Ccitt {
