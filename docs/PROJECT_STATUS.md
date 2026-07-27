@@ -13,8 +13,9 @@
   暂不修改，留给未来正式自主任务。控制参数冻结，不再为演示继续调参。
 - 2026-07-28 FreeRTOS/ECHO 全量重建为 0 Error / 0 Warning；详细数据见
   `docs/worklogs/2026-07-28_513x_continuous_motion_demo.md`。
-- 当前开发分支和累计工作仍未形成最终收尾提交、未 push、未合入 `main`。正式 `E:\ECHO`
-  main 另有用户修改，禁止自动合并或覆盖。
+- 当前开发分支已形成本地整车集成提交
+  `46b509a feat: complete assembled 513x chassis integration`，尚未 push、尚未合入 `main`。
+  正式 `E:\ECHO` main 另有用户修改，禁止自动合并或覆盖。
 - 下一阶段转回已做过临时线路实测的张大头/ZDT Emm 备用步进。旧第一代 `PB15/PB16`
   与正式 ESP32 UART2 冲突；PCB 首测优先使用第二代 `PB2/PB3`，先只读查询再做有界小运动。
 

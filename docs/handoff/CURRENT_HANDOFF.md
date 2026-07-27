@@ -2,7 +2,7 @@
 
 ```yaml
 handoff_schema: 1
-updated_at: 2026-07-28T00:45:00+08:00
+updated_at: 2026-07-28T00:52:00+08:00
 updated_by: Codex
 status: 513x_chassis_closeout_before_zdt_pcb_test
 ```
@@ -23,8 +23,11 @@ status: 513x_chassis_closeout_before_zdt_pcb_test
 - 2026-07-28 FreeRTOS/App全量重建均为0 Error / 0 Warning；App Code=91080、
   RO-data=3552、RW-data=188、ZI-data=19876；`git diff --check`通过。
 - worktree仍为 `C:\Users\Auror\ECHO-513a-work`，branch为
-  `refs/heads/codex/513a-motor-bringup`，HEAD仍是 `962867d`。累计源码、文档、测试和工具
-  尚未形成最终收尾提交，当前分支尚未push。`E:\ECHO` main仍有用户修改，禁止自动合并。
+  `refs/heads/codex/513a-motor-bringup`。整车集成已本地提交为
+  `46b509a feat: complete assembled 513x chassis integration`，当前分支尚未push。
+  该提交包含64个显式暂存文件，未纳入原始采集、缓存或凭据。剩余工作区内容只有用户已有的
+  `docs/hardware/ECHO_WIRING_GUIDE.md` 修改和 ignored/untracked `tmp/`；不得覆盖或误提交。
+  `E:\ECHO` main仍有用户修改，禁止自动合并。
 - 下一阶段是复用 `C:\Users\Auror\ECHO-zdt-x42s-work` 已验证的张大头/ZDT Emm TTL后端，
   测试正式PCB链路。旧第一代UART2 `PB15/PB16` 与当前正式ESP32 UART2冲突，不得直接照搬；
   首选第二代UART3 `PB2 TX -> 电机RX`、`PB3 RX <- 电机TX`、GND共地，先只读地址0x01和

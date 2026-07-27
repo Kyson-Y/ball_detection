@@ -102,9 +102,10 @@ and are not committed.
   ZI-data=19876.
 - `git diff --check` passed.
 - No new controller parameters were introduced by the demonstration.
-- At the time of writing, the worktree still contains the accumulated
-  uncommitted chassis, IMU, ESP UART2, pin-relocation, documentation, tests,
-  and tool changes. No chassis closeout commit or push has yet been created.
+- The accumulated chassis, IMU, ESP UART2, pin-relocation, documentation,
+  tests, and tools were committed locally as
+  `46b509a feat: complete assembled 513x chassis integration`. The branch has
+  not been pushed.
 - The formal main worktree contains pre-existing user modifications and is not
   ready for an automatic fast-forward. Do not merge or overwrite it until
   those files are reconciled.
