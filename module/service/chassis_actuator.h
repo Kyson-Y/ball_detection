@@ -9,10 +9,15 @@
 #define CHASSIS_ACTUATOR_TEST_MAX_PERMILLE   650
 #define CHASSIS_ACTUATOR_TEST_MAX_DURATION_MS 1000U
 #define CHASSIS_ACTUATOR_SPEED_MAX_DURATION_MS 30000U
+#define CHASSIS_ACTUATOR_HEADING_MAX_DURATION_MS 15000U
+#define CHASSIS_ACTUATOR_DISTANCE_MAX_DURATION_MS 60000U
+#define CHASSIS_ACTUATOR_DISTANCE_MAX_MM        5000
 
 typedef enum {
     CHASSIS_ACTUATOR_MODE_ELECTRICAL = 0U,
-    CHASSIS_ACTUATOR_MODE_SPEED = 1U
+    CHASSIS_ACTUATOR_MODE_SPEED = 1U,
+    CHASSIS_ACTUATOR_MODE_HEADING = 2U,
+    CHASSIS_ACTUATOR_MODE_DISTANCE = 3U
 } chassis_actuator_mode_t;
 
 typedef enum {
@@ -27,7 +32,8 @@ typedef enum {
     CHASSIS_ACTUATOR_STOP_TIMING,
     CHASSIS_ACTUATOR_STOP_REJECTED,
     CHASSIS_ACTUATOR_STOP_EMERGENCY,
-    CHASSIS_ACTUATOR_STOP_STALL
+    CHASSIS_ACTUATOR_STOP_STALL,
+    CHASSIS_ACTUATOR_STOP_DISTANCE_TIMEOUT
 } chassis_actuator_stop_reason_t;
 
 typedef enum {
@@ -68,6 +74,8 @@ typedef struct {
     int16_t applied_right_permille;
     int16_t normalized_left_permille;
     int16_t normalized_right_permille;
+    int16_t compensated_left_permille;
+    int16_t compensated_right_permille;
     int16_t left_target_deci_rpm;
     int16_t right_target_deci_rpm;
     float left_measured_rpm;
@@ -82,6 +90,9 @@ typedef struct {
     float right_pid_integrator_permille;
     float right_pid_derivative_permille;
     float right_pid_feedforward_permille;
+    uint32_t supply_voltage_mv;
+    uint16_t voltage_scale_permille;
+    uint16_t supply_stale_cycles;
     uint8_t last_stop_reason;
     uint8_t control_mode;
     uint8_t speed_phase;
@@ -89,7 +100,20 @@ typedef struct {
     uint8_t armed;
     uint8_t output_permitted;
     uint8_t continuous_speed;
-    uint8_t reserved;
+    uint8_t voltage_compensation_active;
+    float heading_target_deg;
+    float heading_current_deg;
+    float heading_error_deg;
+    float heading_correction_rpm;
+    uint32_t heading_update_count;
+    uint32_t heading_saturation_count;
+    float distance_target_mm;
+    float distance_left_mm;
+    float distance_right_mm;
+    float distance_progress_mm;
+    float distance_remaining_mm;
+    uint32_t distance_update_count;
+    uint32_t distance_complete_count;
 } chassis_actuator_diagnostics_t;
 
 /* Watch/debug readers must treat this as read-only. */
@@ -99,7 +123,8 @@ void ChassisActuator_Init(void);
 chassis_actuator_command_status_t ChassisActuator_StageDebugRequest(
     const chassis_actuator_debug_request_t *request);
 void ChassisActuator_ServiceAtControlBoundary(
-    bool schedule_resynchronized, float left_measured_rpm,
+    bool schedule_resynchronized, int32_t left_delta_counts,
+    int32_t right_delta_counts, float left_measured_rpm,
     float right_measured_rpm, uint32_t period_us);
 void ChassisActuator_ForceSafe(chassis_actuator_stop_reason_t reason);
 

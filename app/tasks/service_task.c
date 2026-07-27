@@ -9,7 +9,9 @@
 #include "bsp_supply_voltage.h"
 #include "bsp_tfmini_uart.h"
 #include "bsp_time.h"
+#include "attitude_estimator.h"
 #include "command_service.h"
+#include "esp_uart_link_test.h"
 #include "imu_service.h"
 #include "motor_profile.h"
 #include "queue.h"
@@ -21,6 +23,7 @@
 #include "telemetry.h"
 #include "tfmini_s.h"
 #include "tfmini_transport_config.h"
+#include "vehicle_bringup_config.h"
 
 #define SERVICE_TASK_PERIOD pdMS_TO_TICKS(1U)
 #define SERVICE_HEARTBEAT_TIMEOUT pdMS_TO_TICKS(1500U)
@@ -34,7 +37,14 @@
 #define SERVICE_TFMINI_I2C_PERIOD pdMS_TO_TICKS(20U)
 #define SERVICE_TFMINI_I2C_ADDRESS 0x10U
 #define SERVICE_TFMINI_I2C_RESPONSE_DELAY_US 1000U
+#if ECHO_IMU_DIAGNOSTIC_CAPTURE
+#define SERVICE_IMU_TELEMETRY_PERIOD pdMS_TO_TICKS(10U)
+#define SERVICE_ATTITUDE_TELEMETRY_PERIOD pdMS_TO_TICKS(10U)
+#else
 #define SERVICE_IMU_TELEMETRY_PERIOD pdMS_TO_TICKS(40U)
+#define SERVICE_ATTITUDE_TELEMETRY_PERIOD pdMS_TO_TICKS(40U)
+#endif
+#define SERVICE_ESP_LINK_TELEMETRY_PERIOD pdMS_TO_TICKS(1000U)
 #define SERVICE_TFMINI_TRANSPORT_I2C 1U
 #define SERVICE_TFMINI_TRANSPORT_MIGRATION 2U
 #define SERVICE_TFMINI_MIGRATION_MIN_VALID_FRAMES 5U
@@ -61,7 +71,12 @@ void ServiceTask_Entry(void *context)
     TickType_t last_supply_sample_time = last_wake_time;
     TickType_t last_supply_telemetry_time = last_wake_time;
     TickType_t last_tfmini_telemetry_time = last_wake_time;
+#if ECHO_ENABLE_IMU
     TickType_t last_imu_telemetry_time = last_wake_time;
+    TickType_t last_attitude_telemetry_time = last_wake_time;
+    uint32_t last_attitude_source_sequence = 0U;
+#endif
+    TickType_t last_esp_link_telemetry_time = last_wake_time;
 #if TFMINI_S_ENABLE_UART_TO_I2C_MIGRATION
     TickType_t last_tfmini_migration_time = last_wake_time;
 #else
@@ -89,6 +104,10 @@ void ServiceTask_Entry(void *context)
 
         CommandService_ProcessRx();
         now_us = BSP_Time_GetUs();
+#if ECHO_ENABLE_ESP_LINK
+        EspUartLinkTest_Process(now_us);
+#endif
+#if ECHO_ENABLE_TFMINI
 #if TFMINI_S_ENABLE_UART_TO_I2C_MIGRATION
         BSP_TfminiUart_ServiceTx();
         while (BSP_TfminiUart_TryRead(&tfmini_byte)) {
@@ -148,6 +167,7 @@ void ServiceTask_Entry(void *context)
             }
         }
 #else
+#if ECHO_ENABLE_IMU
         if (ImuService_NeedsBusAccess(now)) {
             if (SerialTx_TryBeginPriorityQuietWindow()) {
                 ImuService_Process(now);
@@ -156,6 +176,7 @@ void ServiceTask_Entry(void *context)
         } else {
             ImuService_Process(now);
         }
+#endif
 
         if ((TickType_t) (now - last_tfmini_i2c_time) >=
             SERVICE_TFMINI_I2C_PERIOD) {
@@ -190,9 +211,74 @@ void ServiceTask_Entry(void *context)
         }
         TfminiS_Update(now_us);
 #endif
+#else
+#if ECHO_ENABLE_IMU
+        if (ImuService_NeedsBusAccess(now)) {
+            if (SerialTx_TryBeginPriorityQuietWindow()) {
+                ImuService_Process(now);
+                SerialTx_EndQuietWindow();
+            }
+        } else {
+            ImuService_Process(now);
+        }
+#endif
+#endif
+
+#if ECHO_ENABLE_IMU
+        {
+            imu_service_snapshot_t imu_snapshot;
+
+            if (ImuService_GetSnapshot(&imu_snapshot) &&
+                (imu_snapshot.update_sequence !=
+                    last_attitude_source_sequence)) {
+                attitude_estimator_input_t attitude_input;
+                uint8_t axis;
+
+                last_attitude_source_sequence =
+                    imu_snapshot.update_sequence;
+                attitude_input.source_update_sequence =
+                    imu_snapshot.update_sequence;
+                attitude_input.sample_count = imu_snapshot.sample_count;
+                attitude_input.timestamp_us = imu_snapshot.timestamp_us;
+                for (axis = 0U; axis < 3U; axis++) {
+                    attitude_input.accel_sensor_g[axis] =
+                        imu_snapshot.accel_g[axis];
+                    attitude_input.gyro_sensor_dps[axis] =
+                        imu_snapshot.gyro_filtered_dps[axis];
+                }
+                attitude_input.valid = imu_snapshot.valid;
+                attitude_input.ready =
+                    (imu_snapshot.state ==
+                        (uint8_t) IMU_SERVICE_STATE_READY) ? 1U : 0U;
+                (void) AttitudeEstimator_Process(&attitude_input);
+            }
+        }
+#endif
 
         /* I2C gets its due slot before ServiceTask starts the next DMA block. */
         SerialTx_Service();
+
+#if ECHO_ENABLE_ESP_LINK
+        if ((TickType_t) (now - last_esp_link_telemetry_time) >=
+            SERVICE_ESP_LINK_TELEMETRY_PERIOD) {
+            esp_uart_link_test_snapshot_t esp_link_snapshot;
+
+            last_esp_link_telemetry_time = now;
+            EspUartLinkTest_GetSnapshot(&esp_link_snapshot);
+            (void) Telemetry_PublishEspLink(&esp_link_snapshot);
+        }
+#endif
+
+#if ECHO_ENABLE_IMU
+        if ((TickType_t) (now - last_attitude_telemetry_time) >=
+            SERVICE_ATTITUDE_TELEMETRY_PERIOD) {
+            attitude_estimator_snapshot_t attitude_snapshot;
+
+            last_attitude_telemetry_time = now;
+            if (AttitudeEstimator_GetSnapshot(&attitude_snapshot)) {
+                (void) Telemetry_PublishAttitude(&attitude_snapshot);
+            }
+        }
 
         if ((TickType_t) (now - last_imu_telemetry_time) >=
             SERVICE_IMU_TELEMETRY_PERIOD) {
@@ -203,7 +289,9 @@ void ServiceTask_Entry(void *context)
                 (void) Telemetry_PublishImu(&imu_snapshot);
             }
         }
+#endif
 
+#if ECHO_ENABLE_TFMINI
         if ((TickType_t) (now - last_tfmini_telemetry_time) >=
             SERVICE_TFMINI_TELEMETRY_PERIOD) {
             telemetry_tfmini_sample_t tfmini_telemetry;
@@ -241,7 +329,9 @@ void ServiceTask_Entry(void *context)
 #endif
             (void) Telemetry_PublishTfmini(&tfmini_telemetry);
         }
+#endif
 
+#if ECHO_ENABLE_REFLECTANCE
         reflectance_scan_divider++;
         if (reflectance_scan_divider >=
             SERVICE_REFLECTANCE_SCAN_DIVIDER) {
@@ -252,6 +342,7 @@ void ServiceTask_Entry(void *context)
                 (void) Telemetry_PublishReflectance(&reflectance_sample);
             }
         }
+#endif
 
         if ((TickType_t) (now - last_supply_sample_time) >=
             SERVICE_SUPPLY_SAMPLE_PERIOD) {

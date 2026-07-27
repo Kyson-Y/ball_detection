@@ -59,6 +59,7 @@ SYSCONFIG_WEAK void SYSCFG_DL_init(void)
     SYSCFG_DL_OLED_I2C_init();
     SYSCFG_DL_DEBUG_UART_init();
     SYSCFG_DL_LIDAR_UART_init();
+    SYSCFG_DL_ESP_LINK_UART_init();
     SYSCFG_DL_REFLECTANCE_ADC_init();
     SYSCFG_DL_SUPPLY_ADC_init();
     SYSCFG_DL_DMA_init();
@@ -105,6 +106,7 @@ SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
     DL_I2C_reset(OLED_I2C_INST);
     DL_UART_Main_reset(DEBUG_UART_INST);
     DL_UART_Main_reset(LIDAR_UART_INST);
+    DL_UART_Main_reset(ESP_LINK_UART_INST);
     DL_ADC12_reset(REFLECTANCE_ADC_INST);
     DL_ADC12_reset(SUPPLY_ADC_INST);
 
@@ -117,6 +119,7 @@ SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
     DL_I2C_enablePower(OLED_I2C_INST);
     DL_UART_Main_enablePower(DEBUG_UART_INST);
     DL_UART_Main_enablePower(LIDAR_UART_INST);
+    DL_UART_Main_enablePower(ESP_LINK_UART_INST);
     DL_ADC12_enablePower(REFLECTANCE_ADC_INST);
     DL_ADC12_enablePower(SUPPLY_ADC_INST);
 
@@ -158,6 +161,10 @@ SYSCONFIG_WEAK void SYSCFG_DL_GPIO_init(void)
         GPIO_LIDAR_UART_IOMUX_TX, GPIO_LIDAR_UART_IOMUX_TX_FUNC);
     DL_GPIO_initPeripheralInputFunction(
         GPIO_LIDAR_UART_IOMUX_RX, GPIO_LIDAR_UART_IOMUX_RX_FUNC);
+    DL_GPIO_initPeripheralOutputFunction(
+        GPIO_ESP_LINK_UART_IOMUX_TX, GPIO_ESP_LINK_UART_IOMUX_TX_FUNC);
+    DL_GPIO_initPeripheralInputFunction(
+        GPIO_ESP_LINK_UART_IOMUX_RX, GPIO_ESP_LINK_UART_IOMUX_RX_FUNC);
 
     DL_GPIO_initDigitalOutputFeatures(GPIO_LEDS_USER_LED_1_IOMUX,
 		 DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_PULL_DOWN,
@@ -177,17 +184,17 @@ SYSCONFIG_WEAK void SYSCFG_DL_GPIO_init(void)
 
     DL_GPIO_initDigitalOutput(GPIO_REFLECTANCE_MUX_REFLECTANCE_AD2_IOMUX);
 
-    DL_GPIO_clearPins(GPIO_REFLECTANCE_MUX_PORT, GPIO_REFLECTANCE_MUX_REFLECTANCE_AD0_PIN |
-		GPIO_REFLECTANCE_MUX_REFLECTANCE_AD1_PIN |
-		GPIO_REFLECTANCE_MUX_REFLECTANCE_AD2_PIN);
-    DL_GPIO_enableOutput(GPIO_REFLECTANCE_MUX_PORT, GPIO_REFLECTANCE_MUX_REFLECTANCE_AD0_PIN |
+    DL_GPIO_setUpperPinsPolarity(GPIO_RIGHT_ENCODER_PORT, DL_GPIO_PIN_25_EDGE_RISE);
+    DL_GPIO_clearInterruptStatus(GPIO_RIGHT_ENCODER_PORT, GPIO_RIGHT_ENCODER_RIGHT_ENCODER_E2A_PIN);
+    DL_GPIO_enableInterrupt(GPIO_RIGHT_ENCODER_PORT, GPIO_RIGHT_ENCODER_RIGHT_ENCODER_E2A_PIN);
+    DL_GPIO_clearPins(GPIOB, GPIO_REFLECTANCE_MUX_REFLECTANCE_AD0_PIN |
 		GPIO_REFLECTANCE_MUX_REFLECTANCE_AD1_PIN |
 		GPIO_REFLECTANCE_MUX_REFLECTANCE_AD2_PIN);
     DL_GPIO_setPins(GPIOB, GPIO_LEDS_USER_LED_1_PIN);
-    DL_GPIO_enableOutput(GPIOB, GPIO_LEDS_USER_LED_1_PIN);
-    DL_GPIO_setLowerPinsPolarity(GPIOB, DL_GPIO_PIN_6_EDGE_RISE);
-    DL_GPIO_clearInterruptStatus(GPIOB, GPIO_RIGHT_ENCODER_RIGHT_ENCODER_E2A_PIN);
-    DL_GPIO_enableInterrupt(GPIOB, GPIO_RIGHT_ENCODER_RIGHT_ENCODER_E2A_PIN);
+    DL_GPIO_enableOutput(GPIOB, GPIO_LEDS_USER_LED_1_PIN |
+		GPIO_REFLECTANCE_MUX_REFLECTANCE_AD0_PIN |
+		GPIO_REFLECTANCE_MUX_REFLECTANCE_AD1_PIN |
+		GPIO_REFLECTANCE_MUX_REFLECTANCE_AD2_PIN);
 
 }
 
@@ -555,6 +562,51 @@ SYSCONFIG_WEAK void SYSCFG_DL_LIDAR_UART_init(void)
 
     DL_UART_Main_enable(LIDAR_UART_INST);
 }
+static const DL_UART_Main_ClockConfig gESP_LINK_UARTClockConfig = {
+    .clockSel    = DL_UART_MAIN_CLOCK_BUSCLK,
+    .divideRatio = DL_UART_MAIN_CLOCK_DIVIDE_RATIO_1
+};
+
+static const DL_UART_Main_Config gESP_LINK_UARTConfig = {
+    .mode        = DL_UART_MAIN_MODE_NORMAL,
+    .direction   = DL_UART_MAIN_DIRECTION_TX_RX,
+    .flowControl = DL_UART_MAIN_FLOW_CONTROL_NONE,
+    .parity      = DL_UART_MAIN_PARITY_NONE,
+    .wordLength  = DL_UART_MAIN_WORD_LENGTH_8_BITS,
+    .stopBits    = DL_UART_MAIN_STOP_BITS_ONE
+};
+
+SYSCONFIG_WEAK void SYSCFG_DL_ESP_LINK_UART_init(void)
+{
+    DL_UART_Main_setClockConfig(ESP_LINK_UART_INST, (DL_UART_Main_ClockConfig *) &gESP_LINK_UARTClockConfig);
+
+    DL_UART_Main_init(ESP_LINK_UART_INST, (DL_UART_Main_Config *) &gESP_LINK_UARTConfig);
+    /*
+     * Configure baud rate by setting oversampling and baud rate divisors.
+     *  Target baud rate: 230400
+     *  Actual baud rate: 230547.55
+     */
+    DL_UART_Main_setOversampling(ESP_LINK_UART_INST, DL_UART_OVERSAMPLING_RATE_16X);
+    DL_UART_Main_setBaudRateDivisor(ESP_LINK_UART_INST, ESP_LINK_UART_IBRD_40_MHZ_230400_BAUD, ESP_LINK_UART_FBRD_40_MHZ_230400_BAUD);
+
+
+    /* Configure Interrupts */
+    DL_UART_Main_enableInterrupt(ESP_LINK_UART_INST,
+                                 DL_UART_MAIN_INTERRUPT_DMA_DONE_RX |
+                                 DL_UART_MAIN_INTERRUPT_DMA_DONE_TX |
+                                 DL_UART_MAIN_INTERRUPT_EOT_DONE);
+
+    /* Configure DMA Receive Event */
+    DL_UART_Main_enableDMAReceiveEvent(ESP_LINK_UART_INST, DL_UART_DMA_INTERRUPT_RX);
+    /* Configure DMA Transmit Event */
+    DL_UART_Main_enableDMATransmitEvent(ESP_LINK_UART_INST);
+    /* Configure FIFOs */
+    DL_UART_Main_enableFIFOs(ESP_LINK_UART_INST);
+    DL_UART_Main_setRXFIFOThreshold(ESP_LINK_UART_INST, DL_UART_RX_FIFO_LEVEL_ONE_ENTRY);
+    DL_UART_Main_setTXFIFOThreshold(ESP_LINK_UART_INST, DL_UART_TX_FIFO_LEVEL_EMPTY);
+
+    DL_UART_Main_enable(ESP_LINK_UART_INST);
+}
 
 /* REFLECTANCE_ADC Initialization */
 static const DL_ADC12_ClockConfig gREFLECTANCE_ADCClockConfig = {
@@ -604,8 +656,40 @@ SYSCONFIG_WEAK void SYSCFG_DL_DEBUG_UART_TX_DMA_init(void)
 {
     DL_DMA_initChannel(DMA, DEBUG_UART_TX_DMA_CHAN_ID , (DL_DMA_Config *) &gDEBUG_UART_TX_DMAConfig);
 }
+static const DL_DMA_Config gESP_LINK_UART_RX_DMAConfig = {
+    .transferMode   = DL_DMA_FULL_CH_REPEAT_SINGLE_TRANSFER_MODE,
+    .extendedMode   = DL_DMA_NORMAL_MODE,
+    .destIncrement  = DL_DMA_ADDR_INCREMENT,
+    .srcIncrement   = DL_DMA_ADDR_UNCHANGED,
+    .destWidth      = DL_DMA_WIDTH_BYTE,
+    .srcWidth       = DL_DMA_WIDTH_BYTE,
+    .trigger        = ESP_LINK_UART_INST_DMA_TRIGGER_0,
+    .triggerType    = DL_DMA_TRIGGER_TYPE_EXTERNAL,
+};
+
+SYSCONFIG_WEAK void SYSCFG_DL_ESP_LINK_UART_RX_DMA_init(void)
+{
+    DL_DMA_initChannel(DMA, ESP_LINK_UART_RX_DMA_CHAN_ID , (DL_DMA_Config *) &gESP_LINK_UART_RX_DMAConfig);
+}
+static const DL_DMA_Config gESP_LINK_UART_TX_DMAConfig = {
+    .transferMode   = DL_DMA_SINGLE_TRANSFER_MODE,
+    .extendedMode   = DL_DMA_NORMAL_MODE,
+    .destIncrement  = DL_DMA_ADDR_UNCHANGED,
+    .srcIncrement   = DL_DMA_ADDR_INCREMENT,
+    .destWidth      = DL_DMA_WIDTH_BYTE,
+    .srcWidth       = DL_DMA_WIDTH_BYTE,
+    .trigger        = ESP_LINK_UART_INST_DMA_TRIGGER_1,
+    .triggerType    = DL_DMA_TRIGGER_TYPE_EXTERNAL,
+};
+
+SYSCONFIG_WEAK void SYSCFG_DL_ESP_LINK_UART_TX_DMA_init(void)
+{
+    DL_DMA_initChannel(DMA, ESP_LINK_UART_TX_DMA_CHAN_ID , (DL_DMA_Config *) &gESP_LINK_UART_TX_DMAConfig);
+}
 SYSCONFIG_WEAK void SYSCFG_DL_DMA_init(void){
     SYSCFG_DL_DEBUG_UART_TX_DMA_init();
+    SYSCFG_DL_ESP_LINK_UART_RX_DMA_init();
+    SYSCFG_DL_ESP_LINK_UART_TX_DMA_init();
 }
 
 

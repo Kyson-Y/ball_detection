@@ -1,6 +1,10 @@
 [CmdletBinding()]
 param(
     [string]$AdapterSerial = "",
+    [ValidateRange(0, 65535)]
+    [int]$AdapterVid = 0,
+    [ValidateRange(0, 65535)]
+    [int]$AdapterPid = 0,
     [ValidateRange(100, 5000)]
     [int]$AdapterSpeedKhz = 1000
 )
@@ -20,6 +24,10 @@ foreach ($requiredPath in @($openocd, $scripts, $objcopy, $hex)) {
     }
 }
 
+if (($AdapterVid -eq 0) -ne ($AdapterPid -eq 0)) {
+    throw "AdapterVid and AdapterPid must be specified together."
+}
+
 function Invoke-EchoOpenOcd {
     param([string[]]$Commands)
 
@@ -27,6 +35,13 @@ function Invoke-EchoOpenOcd {
         "-s", $scripts,
         "-f", "interface/cmsis-dap.cfg"
     )
+    if ($AdapterVid -ne 0) {
+        $arguments += @(
+            "-c",
+            ('cmsis-dap vid_pid 0x{0:X4} 0x{1:X4}' -f `
+                $AdapterVid, $AdapterPid)
+        )
+    }
     if (-not [string]::IsNullOrWhiteSpace($AdapterSerial)) {
         $arguments += @("-c", ('adapter serial "{0}"' -f $AdapterSerial))
     }
@@ -41,24 +56,25 @@ function Invoke-EchoOpenOcd {
 }
 
 $hexForTcl = $hex.Replace("\", "/")
-$programCommand = 'program "{0}" verify reset exit' -f $hexForTcl
+$programCommand = 'program "{0}" reset exit' -f $hexForTcl
 
 Write-Host "Flashing ECHO through DAPLink..." -ForegroundColor Cyan
 Write-Host "Image: $hex"
 if (-not [string]::IsNullOrWhiteSpace($AdapterSerial)) {
     Write-Host "CMSIS-DAP serial: $AdapterSerial"
 }
+if ($AdapterVid -ne 0) {
+    Write-Host ("CMSIS-DAP VID:PID: {0:X4}:{1:X4}" -f `
+        $AdapterVid, $AdapterPid)
+}
 Write-Host "SWD frequency: $AdapterSpeedKhz kHz"
 
 Invoke-EchoOpenOcd -Commands @($programCommand)
-$fastVerifyExitCode = $LASTEXITCODE
-if ($fastVerifyExitCode -eq 0) {
-    Write-Host "Flash and fast verification succeeded." -ForegroundColor Green
-    return
+if ($LASTEXITCODE -ne 0) {
+    throw "OpenOCD Flash programming failed with exit code $LASTEXITCODE."
 }
 
-Write-Host "OpenOCD target CRC verification was unavailable." -ForegroundColor Yellow
-Write-Host "Falling back to byte-for-byte Flash readback verification." -ForegroundColor Yellow
+Write-Host "Programming succeeded; starting byte-for-byte Flash readback verification." -ForegroundColor Cyan
 
 $tempRoot = [System.IO.Path]::GetTempPath()
 $expectedBinary = Join-Path $tempRoot ("ECHO_expected_{0}.bin" -f $PID)

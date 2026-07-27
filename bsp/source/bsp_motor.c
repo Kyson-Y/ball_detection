@@ -18,6 +18,12 @@ static void BSP_Motor_ForceChannelLow(DL_TIMER_CC_INDEX index)
         DL_TIMER_FORCE_CMPL_OUT_DISABLED, index);
 }
 
+static void BSP_Motor_ForceChannelHigh(DL_TIMER_CC_INDEX index)
+{
+    DL_Timer_overrideCCPOut(CHASSIS_PWM_INST, DL_TIMER_FORCE_OUT_HIGH,
+        DL_TIMER_FORCE_CMPL_OUT_DISABLED, index);
+}
+
 static void BSP_Motor_ReleaseChannel(DL_TIMER_CC_INDEX index)
 {
     DL_Timer_overrideCCPOut(CHASSIS_PWM_INST,
@@ -58,9 +64,11 @@ void BSP_Motor_Init(void)
     g_bsp_motor_diag.update_count = 0U;
     g_bsp_motor_diag.force_safe_count = 0U;
     g_bsp_motor_diag.rejected_command_count = 0U;
+    g_bsp_motor_diag.brake_count = 0U;
     g_bsp_motor_diag.initialized = 1U;
     g_bsp_motor_diag.timer_running = 1U;
     g_bsp_motor_diag.output_active = 0U;
+    g_bsp_motor_diag.brake_active_mask = 0U;
 }
 
 void BSP_Motor_ForceSafe(void)
@@ -74,6 +82,7 @@ void BSP_Motor_ForceSafe(void)
         g_bsp_motor_diag.applied_permille[channel] = 0;
     }
     g_bsp_motor_diag.output_active = 0U;
+    g_bsp_motor_diag.brake_active_mask = 0U;
     g_bsp_motor_diag.force_safe_count++;
 }
 
@@ -94,12 +103,15 @@ bool BSP_Motor_SetFastDecay(
 
     BSP_Motor_ForceChannelLow(s_input_index[channel][0]);
     BSP_Motor_ForceChannelLow(s_input_index[channel][1]);
+    g_bsp_motor_diag.brake_active_mask &=
+        (uint8_t) ~(1U << (uint32_t) channel);
 
     if (electrical_permille == 0) {
         g_bsp_motor_diag.applied_permille[channel] = 0;
         g_bsp_motor_diag.output_active =
             (g_bsp_motor_diag.applied_permille[BSP_MOTOR_LEFT] != 0) ||
-            (g_bsp_motor_diag.applied_permille[BSP_MOTOR_RIGHT] != 0);
+            (g_bsp_motor_diag.applied_permille[BSP_MOTOR_RIGHT] != 0) ||
+            (g_bsp_motor_diag.brake_active_mask != 0U);
         g_bsp_motor_diag.update_count++;
         return true;
     }
@@ -120,6 +132,24 @@ bool BSP_Motor_SetFastDecay(
 
     g_bsp_motor_diag.applied_permille[channel] = electrical_permille;
     g_bsp_motor_diag.output_active = 1U;
+    g_bsp_motor_diag.update_count++;
+    return true;
+}
+
+bool BSP_Motor_Brake(bsp_motor_channel_t channel)
+{
+    if ((uint32_t) channel >= (uint32_t) BSP_MOTOR_COUNT) {
+        g_bsp_motor_diag.rejected_command_count++;
+        return false;
+    }
+
+    BSP_Motor_ForceChannelHigh(s_input_index[channel][0]);
+    BSP_Motor_ForceChannelHigh(s_input_index[channel][1]);
+    g_bsp_motor_diag.applied_permille[channel] = 0;
+    g_bsp_motor_diag.brake_active_mask |=
+        (uint8_t) (1U << (uint32_t) channel);
+    g_bsp_motor_diag.output_active = 1U;
+    g_bsp_motor_diag.brake_count++;
     g_bsp_motor_diag.update_count++;
     return true;
 }

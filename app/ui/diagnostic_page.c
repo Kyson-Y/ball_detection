@@ -85,6 +85,41 @@ static void UiLine_AppendFixed3(ui_line_t *line, float value)
     UiLine_AppendPadded3(line, magnitude % 1000U);
 }
 
+static void UiLine_AppendFixed1(ui_line_t *line, float value)
+{
+    float scaled = value * 10.0f;
+    int32_t deci;
+    uint32_t magnitude;
+
+    if (scaled > 99999.0f) {
+        scaled = 99999.0f;
+    } else if (scaled < -99999.0f) {
+        scaled = -99999.0f;
+    }
+    deci = (scaled >= 0.0f) ?
+        (int32_t) (scaled + 0.5f) : (int32_t) (scaled - 0.5f);
+    if (deci < 0) {
+        UiLine_AppendChar(line, '-');
+        magnitude = 0U - (uint32_t) deci;
+    } else {
+        magnitude = (uint32_t) deci;
+    }
+    UiLine_AppendU32(line, magnitude / 10U);
+    UiLine_AppendChar(line, '.');
+    UiLine_AppendChar(line, (char) ('0' + (magnitude % 10U)));
+}
+
+static void UiLine_AppendVoltage(ui_line_t *line, uint32_t millivolts)
+{
+    UiLine_AppendU32(line, millivolts / 1000U);
+    UiLine_AppendChar(line, '.');
+    UiLine_AppendChar(line,
+        (char) ('0' + ((millivolts / 100U) % 10U)));
+    UiLine_AppendChar(line,
+        (char) ('0' + ((millivolts / 10U) % 10U)));
+    UiLine_AppendChar(line, 'V');
+}
+
 static void UiLine_AppendHex8(ui_line_t *line, uint8_t value)
 {
     static const char hex_digits[] = "0123456789ABCDEF";
@@ -107,6 +142,83 @@ static void DiagnosticPage_DrawFooter(uint8_t page_index)
     UiLine_AppendU32(&line, (uint32_t) page_index + 1U);
     UiLine_AppendText(&line, "/");
     UiLine_AppendU32(&line, DIAGNOSTIC_PAGE_COUNT);
+    DiagnosticPage_DrawLine(7U, &line);
+}
+
+static void DiagnosticPage_RenderCar(const diagnostic_page_data_t *data)
+{
+    const system_health_issue_descriptor_t *active =
+        SystemHealth_GetIssueDescriptor(
+            (system_health_issue_t) data->health.active_issue);
+    ui_line_t line;
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "CAR 513X-4S H:");
+    UiLine_AppendText(&line, SystemHealth_LevelName(
+        (system_health_level_t) data->health.level));
+    DiagnosticPage_DrawLine(0U, &line);
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "BAT:");
+    if (data->supply_valid != 0U) {
+        UiLine_AppendVoltage(&line, data->battery_mv);
+    } else if (data->supply_sample_count == 0U) {
+        UiLine_AppendText(&line, "WAIT");
+    } else {
+        UiLine_AppendText(&line, "INVALID ");
+        UiLine_AppendVoltage(&line, data->battery_mv);
+    }
+    UiLine_AppendText(&line, " E:");
+    UiLine_AppendU32(&line, data->supply_timeout_count);
+    DiagnosticPage_DrawLine(1U, &line);
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "IMU:");
+    UiLine_AppendText(&line, data->imu_ready ? "READY" :
+        (data->imu_online ? "CAL" : "OFF"));
+    UiLine_AppendText(&line, " ID:");
+    if (data->imu_online != 0U) {
+        UiLine_AppendHex8(&line, data->imu_who_am_i);
+    } else {
+        UiLine_AppendText(&line, "--");
+    }
+    DiagnosticPage_DrawLine(2U, &line);
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "OLED:");
+    UiLine_AppendText(&line, data->health.oled_online ? "OK" : "OFF");
+    UiLine_AppendText(&line, " I2C E:");
+    UiLine_AppendU32(&line, data->health.i2c_error_count);
+    DiagnosticPage_DrawLine(3U, &line);
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "RPM L:");
+    UiLine_AppendFixed1(&line, data->left_rpm);
+    UiLine_AppendText(&line, " R:");
+    UiLine_AppendFixed1(&line, data->right_rpm);
+    DiagnosticPage_DrawLine(4U, &line);
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "TGT L:");
+    UiLine_AppendFixed1(&line,
+        (float) data->left_target_deci_rpm * 0.1f);
+    UiLine_AppendText(&line, " R:");
+    UiLine_AppendFixed1(&line,
+        (float) data->right_target_deci_rpm * 0.1f);
+    DiagnosticPage_DrawLine(5U, &line);
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "ENC:");
+    UiLine_AppendText(&line, data->encoder_initialized ? "INIT" : "OFF");
+    UiLine_AppendText(&line, " MOTOR:");
+    UiLine_AppendText(&line,
+        (data->health.actuator_output_permitted != 0U) ? "RUN" :
+        (data->motor_profile_valid ? "LOCK" : "BAD"));
+    DiagnosticPage_DrawLine(6U, &line);
+
+    UiLine_Clear(&line);
+    UiLine_AppendText(&line, "FAULT:");
+    UiLine_AppendText(&line, active->short_name);
     DiagnosticPage_DrawLine(7U, &line);
 }
 
@@ -397,6 +509,9 @@ void DiagnosticPage_Render(const diagnostic_page_data_t *data)
 
     Ssd1306_Clear();
     switch ((diagnostic_page_t) data->page_index) {
+        case DIAGNOSTIC_PAGE_CAR:
+            DiagnosticPage_RenderCar(data);
+            break;
         case DIAGNOSTIC_PAGE_OVERVIEW:
             DiagnosticPage_RenderOverview(data);
             break;

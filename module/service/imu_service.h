@@ -53,6 +53,8 @@ typedef struct {
     uint32_t reinitialize_count;
     uint32_t calibration_restart_count;
     uint32_t calibration_complete_count;
+    uint32_t bias_tracking_update_count;
+    uint32_t bias_tracking_reset_count;
     uint32_t last_sample_tick;
     uint32_t last_sample_timestamp_us;
     uint8_t initialized;

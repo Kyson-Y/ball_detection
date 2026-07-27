@@ -91,27 +91,35 @@ void Mpu6050_InitDiagnostics(void)
 
 bool Mpu6050_Probe(uint8_t *address, uint8_t *who_am_i)
 {
-    uint8_t identity = 0U;
-    const mpu6050_profile_t *profile;
+    static const uint8_t addresses[] = {
+        MPU6050_ADDRESS_AD0_LOW,
+        MPU6050_ADDRESS_AD0_HIGH
+    };
+    uint8_t index;
 
     if ((address == NULL) || (who_am_i == NULL)) {
         return false;
     }
 
     g_mpu6050_diag.probe_attempt_count++;
-    if (Mpu6050_ReadRegisters(MPU6050_I2C_ADDRESS,
-            MPU6050_REG_WHO_AM_I, &identity, 1U)) {
-        g_mpu6050_diag.address = MPU6050_I2C_ADDRESS;
+    for (index = 0U; index < (uint8_t) sizeof(addresses); index++) {
+        const mpu6050_profile_t *profile;
+        uint8_t identity = 0U;
+
+        if (!Mpu6050_ReadRegisters(addresses[index],
+                MPU6050_REG_WHO_AM_I, &identity, 1U)) {
+            continue;
+        }
+        g_mpu6050_diag.address = addresses[index];
         g_mpu6050_diag.who_am_i = identity;
-    }
-    profile = Mpu6050_GetProfile(identity);
-    if ((g_mpu6050_diag.last_i2c_result ==
-            (uint32_t) BSP_I2C_RESULT_OK) && (profile != NULL)) {
-        *address = MPU6050_I2C_ADDRESS;
-        *who_am_i = identity;
-        g_mpu6050_diag.profile_version = profile->version;
-        g_mpu6050_diag.probe_success_count++;
-        return true;
+        profile = Mpu6050_GetProfile(identity);
+        if (profile != NULL) {
+            *address = addresses[index];
+            *who_am_i = identity;
+            g_mpu6050_diag.profile_version = profile->version;
+            g_mpu6050_diag.probe_success_count++;
+            return true;
+        }
     }
     return false;
 }

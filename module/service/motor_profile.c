@@ -7,7 +7,7 @@
 
 #define MOTOR_PROFILE_MG370_VERSION 13U
 #define MOTOR_PROFILE_513X_VERSION  5U
-#define MOTOR_PROFILE_513X_4S_VERSION 11U
+#define MOTOR_PROFILE_513X_4S_VERSION 14U
 
 #if ECHO_MOTOR_PROFILE_SELECTION == ECHO_MOTOR_PROFILE_MG370
 
@@ -32,10 +32,12 @@ static const motor_profile_t s_active_profile = {
         MOTOR_PROFILE_VALID_SPEED_LIMIT |
         MOTOR_PROFILE_VALID_ACCELERATION_LIMIT |
         MOTOR_PROFILE_VALID_SPEED_PID |
-        MOTOR_PROFILE_VALID_MOTOR_OUTPUT_SIGNS,
+        MOTOR_PROFILE_VALID_MOTOR_OUTPUT_SIGNS |
+        MOTOR_PROFILE_VALID_CONTROL_REFERENCE_VOLTAGE,
     MOTOR_PROFILE_FLAG_CPR_PROVISIONAL |
         MOTOR_PROFILE_FLAG_ACTUATOR_TEST_READY |
         MOTOR_PROFILE_FLAG_CLOSED_LOOP_READY,
+    12000U,
     12000U,
     1100U,
     6200U,
@@ -83,10 +85,12 @@ static const motor_profile_t s_active_profile = {
         MOTOR_PROFILE_VALID_SPEED_LIMIT |
         MOTOR_PROFILE_VALID_ACCELERATION_LIMIT |
         MOTOR_PROFILE_VALID_SPEED_PID |
-        MOTOR_PROFILE_VALID_MOTOR_OUTPUT_SIGNS,
+        MOTOR_PROFILE_VALID_MOTOR_OUTPUT_SIGNS |
+        MOTOR_PROFILE_VALID_CONTROL_REFERENCE_VOLTAGE,
     MOTOR_PROFILE_FLAG_CPR_PROVISIONAL |
         MOTOR_PROFILE_FLAG_ACTUATOR_TEST_READY |
         MOTOR_PROFILE_FLAG_CLOSED_LOOP_READY,
+    12000U,
     12000U,
     360U,
     3200U,
@@ -106,8 +110,8 @@ static const motor_profile_t s_active_profile = {
       150.0f, 150.0f, 3000.0f, 3000.0f,
       600U, 100U, 500U, 0.5f, 20.0f },
     {
-        { 1, 1, 4U, 0U, 56000U },
-        { -1, -1, 1U, 0U, 14000U }
+        { 1, -1, 4U, 0U, 56000U },
+        { -1, 1, 1U, 0U, 14000U }
     }
 };
 
@@ -135,11 +139,13 @@ static const motor_profile_t s_active_profile = {
         MOTOR_PROFILE_VALID_SPEED_LIMIT |
         MOTOR_PROFILE_VALID_ACCELERATION_LIMIT |
         MOTOR_PROFILE_VALID_SPEED_PID |
-        MOTOR_PROFILE_VALID_MOTOR_OUTPUT_SIGNS,
+        MOTOR_PROFILE_VALID_MOTOR_OUTPUT_SIGNS |
+        MOTOR_PROFILE_VALID_CONTROL_REFERENCE_VOLTAGE,
     MOTOR_PROFILE_FLAG_CPR_PROVISIONAL |
         MOTOR_PROFILE_FLAG_ACTUATOR_TEST_READY |
         MOTOR_PROFILE_FLAG_CLOSED_LOOP_READY,
     12000U,
+    16580U,
     360U,
     3200U,
     28.0f,
@@ -153,13 +159,13 @@ static const motor_profile_t s_active_profile = {
     0U,
     0U,
     MOTOR_ENCODER_INTERFACE_GMR_AB,
-    { 6.0f, 8.0f, 0.0f, 90.0f, 4.0f, 3.0f, 6000.0f, 650.0f,
-      388.5f, 375.0f, 1.93f, 2.70f, 0.30f,
+    { 6.0f, 20.0f, 0.0f, 200.0f, 4.0f, 3.0f, 6000.0f, 650.0f,
+      388.5f, 371.0f, 1.93f, 2.17f, 0.30f,
       150.0f, 90.0f, 3000.0f, 3000.0f,
       600U, 10U, 500U, 0.25f, 20.0f },
     {
-        { 1, 1, 4U, 0U, 56000U },
-        { -1, -1, 1U, 0U, 14000U }
+        { 1, -1, 4U, 0U, 56000U },
+        { -1, 1, 1U, 0U, 14000U }
     }
 };
 
@@ -233,11 +239,13 @@ static bool MotorProfile_ClosedLoopFieldsAreValid(void)
         MOTOR_PROFILE_VALID_SPEED_LIMIT |
         MOTOR_PROFILE_VALID_ACCELERATION_LIMIT |
         MOTOR_PROFILE_VALID_SPEED_PID |
-        MOTOR_PROFILE_VALID_MOTOR_OUTPUT_SIGNS;
+        MOTOR_PROFILE_VALID_MOTOR_OUTPUT_SIGNS |
+        MOTOR_PROFILE_VALID_CONTROL_REFERENCE_VOLTAGE;
 
     return (s_active_profile.valid_fields & required_fields) ==
             required_fields &&
         MotorProfile_MotorSignsAreValid() &&
+        s_active_profile.control_reference_voltage_mv != 0U &&
         s_active_profile.start_pwm_permille != 0U &&
         s_active_profile.maximum_pwm_permille >=
             s_active_profile.start_pwm_permille &&
@@ -271,6 +279,7 @@ void MotorProfile_Init(void)
         s_active_profile.schema_version == MOTOR_PROFILE_SCHEMA_VERSION &&
         s_active_profile.profile_id != MOTOR_PROFILE_ID_NONE &&
         s_active_profile.rated_voltage_mv != 0U &&
+        s_active_profile.control_reference_voltage_mv != 0U &&
         s_active_profile.gear_ratio > 0.0f &&
         s_active_profile.encoder_ppr != 0U &&
         MotorProfile_WheelIsValid(left) &&

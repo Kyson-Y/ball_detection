@@ -4,8 +4,10 @@
 #include <string.h>
 
 #include "bsp_time.h"
+#include "chassis_actuator.h"
 #include "mpu6050.h"
 #include "task.h"
+#include "vehicle_bringup_config.h"
 
 #define IMU_SERVICE_SAMPLE_PERIOD       pdMS_TO_TICKS(10U)
 #define IMU_SERVICE_SAMPLE_PHASE_DELAY  pdMS_TO_TICKS(6U)
@@ -17,6 +19,10 @@
 #define IMU_SERVICE_ACCEL_NORM_MIN_SQ   0.7225f
 #define IMU_SERVICE_ACCEL_NORM_MAX_SQ   1.3225f
 #define IMU_SERVICE_FILTER_ALPHA        0.6110155f
+#define IMU_SERVICE_BIAS_TRACK_CONFIRM_SAMPLES 100U
+#define IMU_SERVICE_BIAS_TRACK_MAX_GYRO_DPS 0.5f
+#define IMU_SERVICE_BIAS_TRACK_MAX_WHEEL_RPM 0.5f
+#define IMU_SERVICE_BIAS_TRACK_ALPHA    0.002f
 #define IMU_SERVICE_DEBUG_AUTO_INJECT_FAILURES 0U
 #define IMU_SERVICE_DEBUG_AUTO_INJECT_READY_DELAY pdMS_TO_TICKS(5000U)
 
@@ -34,6 +40,17 @@ static float s_gyro_bias_counts[3];
 static float s_filtered_dps[3];
 static float s_calibration_temperature_c;
 static bool s_filter_initialized;
+static uint16_t s_bias_stationary_samples;
+static const float s_accel_bias_g[3] = {
+    ECHO_IMU_ACCEL_BIAS_X_G,
+    ECHO_IMU_ACCEL_BIAS_Y_G,
+    ECHO_IMU_ACCEL_BIAS_Z_G
+};
+static const float s_accel_scale[3] = {
+    ECHO_IMU_ACCEL_SCALE_X,
+    ECHO_IMU_ACCEL_SCALE_Y,
+    ECHO_IMU_ACCEL_SCALE_Z
+};
 #if IMU_SERVICE_DEBUG_AUTO_INJECT_FAILURES > 0U
 static TickType_t s_debug_ready_tick;
 static bool s_debug_auto_injected;
@@ -64,6 +81,69 @@ static void ImuService_ResetCalibration(void)
     memset(s_gyro_calibration_sum, 0, sizeof(s_gyro_calibration_sum));
     s_calibration_samples = 0U;
     s_filter_initialized = false;
+    s_bias_stationary_samples = 0U;
+}
+
+static float ImuService_AbsFloat(float value)
+{
+    return (value < 0.0f) ? -value : value;
+}
+
+static bool ImuService_IsBiasTrackingStationary(
+    const mpu6050_raw_sample_t *raw, float accel_norm_sq)
+{
+    float maximum_residual_counts =
+        IMU_SERVICE_BIAS_TRACK_MAX_GYRO_DPS *
+        MPU6050_GYRO_LSB_PER_DPS;
+    uint8_t axis;
+
+    if ((g_chassis_actuator_diag.initialized == 0U) ||
+        (g_chassis_actuator_diag.output_permitted != 0U) ||
+        (g_chassis_actuator_diag.applied_left_permille != 0) ||
+        (g_chassis_actuator_diag.applied_right_permille != 0) ||
+        (ImuService_AbsFloat(g_chassis_actuator_diag.left_measured_rpm) >
+            IMU_SERVICE_BIAS_TRACK_MAX_WHEEL_RPM) ||
+        (ImuService_AbsFloat(g_chassis_actuator_diag.right_measured_rpm) >
+            IMU_SERVICE_BIAS_TRACK_MAX_WHEEL_RPM) ||
+        (accel_norm_sq < IMU_SERVICE_ACCEL_NORM_MIN_SQ) ||
+        (accel_norm_sq > IMU_SERVICE_ACCEL_NORM_MAX_SQ)) {
+        return false;
+    }
+
+    for (axis = 0U; axis < 3U; axis++) {
+        if (ImuService_AbsFloat(
+                (float) raw->gyro[axis] - s_gyro_bias_counts[axis]) >
+            maximum_residual_counts) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void ImuService_UpdateTrackedBias(
+    const mpu6050_raw_sample_t *raw, float accel_norm_sq)
+{
+    uint8_t axis;
+
+    if (!ImuService_IsBiasTrackingStationary(raw, accel_norm_sq)) {
+        if (s_bias_stationary_samples != 0U) {
+            g_imu_service_diag.bias_tracking_reset_count++;
+        }
+        s_bias_stationary_samples = 0U;
+        return;
+    }
+
+    if (s_bias_stationary_samples <
+        IMU_SERVICE_BIAS_TRACK_CONFIRM_SAMPLES) {
+        s_bias_stationary_samples++;
+        return;
+    }
+
+    for (axis = 0U; axis < 3U; axis++) {
+        s_gyro_bias_counts[axis] += IMU_SERVICE_BIAS_TRACK_ALPHA *
+            ((float) raw->gyro[axis] - s_gyro_bias_counts[axis]);
+    }
+    g_imu_service_diag.bias_tracking_update_count++;
 }
 
 static bool ImuService_IsCalibrationSampleStationary(
@@ -209,8 +289,12 @@ static void ImuService_ProcessSample(TickType_t now)
     snapshot.calibration_temperature_c = s_calibration_temperature_c;
 
     for (axis = 0U; axis < 3U; axis++) {
-        snapshot.accel_g[axis] =
+        float accel_uncalibrated_g =
             (float) raw.accel[axis] / MPU6050_ACCEL_LSB_PER_G;
+
+        snapshot.accel_g[axis] =
+            (accel_uncalibrated_g - s_accel_bias_g[axis]) *
+            s_accel_scale[axis];
         accel_norm_sq += snapshot.accel_g[axis] * snapshot.accel_g[axis];
         snapshot.gyro_raw_dps[axis] =
             (float) raw.gyro[axis] / MPU6050_GYRO_LSB_PER_DPS;
@@ -222,6 +306,10 @@ static void ImuService_ProcessSample(TickType_t now)
     if (g_imu_service_diag.state ==
             (uint8_t) IMU_SERVICE_STATE_CALIBRATING) {
         ImuService_ProcessCalibration(&raw, accel_norm_sq, temperature_c);
+    }
+
+    if (g_imu_service_diag.state == (uint8_t) IMU_SERVICE_STATE_READY) {
+        ImuService_UpdateTrackedBias(&raw, accel_norm_sq);
     }
 
     snapshot.state = g_imu_service_diag.state;

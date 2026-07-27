@@ -76,15 +76,30 @@ static void BSP_I2C_RestorePeripheralPins(void)
 
     DL_GPIO_initPeripheralInputFunctionFeatures(
         GPIO_OLED_I2C_IOMUX_SDA, GPIO_OLED_I2C_IOMUX_SDA_FUNC,
-        DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_NONE,
+        DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_PULL_UP,
         DL_GPIO_HYSTERESIS_DISABLE, DL_GPIO_WAKEUP_DISABLE);
     DL_GPIO_initPeripheralInputFunctionFeatures(
         GPIO_OLED_I2C_IOMUX_SCL, GPIO_OLED_I2C_IOMUX_SCL_FUNC,
-        DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_NONE,
+        DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_PULL_UP,
         DL_GPIO_HYSTERESIS_DISABLE, DL_GPIO_WAKEUP_DISABLE);
     DL_GPIO_enableHiZ(GPIO_OLED_I2C_IOMUX_SDA);
     DL_GPIO_enableHiZ(GPIO_OLED_I2C_IOMUX_SCL);
     SYSCFG_DL_OLED_I2C_init();
+}
+
+static void BSP_I2C_EnableInternalPullUps(void)
+{
+    /* Weak pull-ups are a fallback for short diagnostic wiring. */
+    DL_GPIO_initPeripheralInputFunctionFeatures(
+        GPIO_OLED_I2C_IOMUX_SDA, GPIO_OLED_I2C_IOMUX_SDA_FUNC,
+        DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_PULL_UP,
+        DL_GPIO_HYSTERESIS_DISABLE, DL_GPIO_WAKEUP_DISABLE);
+    DL_GPIO_initPeripheralInputFunctionFeatures(
+        GPIO_OLED_I2C_IOMUX_SCL, GPIO_OLED_I2C_IOMUX_SCL_FUNC,
+        DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_PULL_UP,
+        DL_GPIO_HYSTERESIS_DISABLE, DL_GPIO_WAKEUP_DISABLE);
+    DL_GPIO_enableHiZ(GPIO_OLED_I2C_IOMUX_SDA);
+    DL_GPIO_enableHiZ(GPIO_OLED_I2C_IOMUX_SCL);
 }
 
 static bool BSP_I2C_BusClearLocked(void)
@@ -104,10 +119,10 @@ static bool BSP_I2C_BusClearLocked(void)
     DL_GPIO_clearPins(
         GPIO_OLED_I2C_SCL_PORT, GPIO_OLED_I2C_SCL_PIN);
     DL_GPIO_initDigitalInputFeatures(GPIO_OLED_I2C_IOMUX_SDA,
-        DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_NONE,
+        DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_PULL_UP,
         DL_GPIO_HYSTERESIS_DISABLE, DL_GPIO_WAKEUP_DISABLE);
     DL_GPIO_initDigitalInputFeatures(GPIO_OLED_I2C_IOMUX_SCL,
-        DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_NONE,
+        DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_PULL_UP,
         DL_GPIO_HYSTERESIS_DISABLE, DL_GPIO_WAKEUP_DISABLE);
     BSP_I2C_DelayUs(BSP_I2C_BUS_CLEAR_PULSE_US);
 
@@ -338,6 +353,8 @@ static void BSP_I2C_RecordFailureLocked(bsp_i2c_result_t result)
 
 void BSP_I2C_Init(void)
 {
+    BSP_I2C_EnableInternalPullUps();
+
     g_bsp_i2c_diag.write_attempt_count = 0U;
     g_bsp_i2c_diag.write_success_count = 0U;
     g_bsp_i2c_diag.read_attempt_count = 0U;

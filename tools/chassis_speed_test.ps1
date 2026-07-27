@@ -15,6 +15,7 @@ param(
     [string]$OutputDirectory = "",
     [switch]$ConfirmUserPresent,
     [switch]$ConfirmWheelSuspended,
+    [switch]$ConfirmGroundClear,
     [switch]$ConfirmBothMotorsConnected,
     [switch]$ConfirmCurrentLimitedSupply,
     [switch]$ConfirmBatteryPowered,
@@ -28,12 +29,12 @@ if ([Math]::Abs($TargetRpm) -lt 0.1) {
     throw "TargetRpm must have magnitude of at least 0.1 rpm."
 }
 if (-not $ConfirmUserPresent -or
-    -not $ConfirmWheelSuspended -or
+    (-not $ConfirmWheelSuspended -and -not $ConfirmGroundClear) -or
     -not $ConfirmBothMotorsConnected -or
     (-not $ConfirmCurrentLimitedSupply -and
      -not $ConfirmBatteryPowered) -or
     -not $ConfirmPhysicalDisconnectReady) {
-    throw "Speed tests require every physical safety confirmation and an explicit power-source confirmation."
+    throw "Speed tests require a suspended wheel or clear ground area, every physical safety confirmation, and an explicit power-source confirmation."
 }
 if ($Sequence -eq 0) {
     $Sequence = [uint32](Get-Random -Minimum 1 -Maximum 2147483647)
@@ -142,7 +143,9 @@ $capture.Dispose()
 
 & $captureTool -InputPath $rawPath -CsvPath $csvPath -JsonPath $jsonPath |
     Out-Host
-if (($null -ne $LASTEXITCODE) -and ($LASTEXITCODE -ne 0)) {
+$parserExitCode = $LASTEXITCODE
+if (($null -ne $parserExitCode) -and
+    ($parserExitCode -ne 0) -and ($parserExitCode -ne 2)) {
     throw "Telemetry validation failed with exit code $LASTEXITCODE."
 }
 
@@ -263,6 +266,7 @@ $result = [pscustomobject]@{
     HealthRateHz = $summary.HealthRateHz
     CrcErrors = $summary.CrcErrors
     SequenceGaps = $summary.SequenceGaps
+    ParserExitCode = $parserExitCode
     DeadlineMissCount = $summary.DeadlineMissCount
     EncoderIsrLateCount = if ($null -ne $health.EncoderIsrLateCount) {
         [uint32]$health.EncoderIsrLateCount

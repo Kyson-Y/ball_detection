@@ -14,6 +14,7 @@
 #include "rtos_hooks.h"
 #include "task.h"
 #include "telemetry.h"
+#include "vehicle_bringup_config.h"
 
 #define SYSTEM_TASK_PERIOD \
     pdMS_TO_TICKS(RTOS_DIAGNOSTICS_SYSTEM_PERIOD_US / 1000U)
@@ -61,6 +62,8 @@ void SystemTask_Entry(void *context)
             right_encoder.delta_counts, encoder_period_us);
         ChassisActuator_ServiceAtControlBoundary(
             schedule_resynchronized,
+            left_encoder.delta_counts,
+            right_encoder.delta_counts,
             g_motor_profile_diag.left_output_rpm,
             g_motor_profile_diag.right_output_rpm,
             encoder_period_us);
@@ -84,17 +87,22 @@ void SystemTask_Entry(void *context)
             g_rtos_diag.queue_send_count++;
         }
 
-        speed_telemetry = g_chassis_actuator_diag.control_mode ==
-            (uint8_t) CHASSIS_ACTUATOR_MODE_SPEED;
+        speed_telemetry =
+            g_chassis_actuator_diag.control_mode ==
+                (uint8_t) CHASSIS_ACTUATOR_MODE_SPEED ||
+            g_chassis_actuator_diag.control_mode ==
+                (uint8_t) CHASSIS_ACTUATOR_MODE_HEADING ||
+            g_chassis_actuator_diag.control_mode ==
+                (uint8_t) CHASSIS_ACTUATOR_MODE_DISTANCE;
         if (speed_telemetry) {
             sample.setpoint =
                 (float) g_chassis_actuator_diag.left_target_deci_rpm * 0.1f;
             sample.measurement = g_motor_profile_diag.left_output_rpm;
             sample.control_output = g_motor_profile_diag.right_output_rpm;
             sample.auxiliary =
-                (float) g_chassis_actuator_diag.normalized_left_permille;
+                (float) g_chassis_actuator_diag.compensated_left_permille;
             sample.right_auxiliary =
-                (float) g_chassis_actuator_diag.normalized_right_permille;
+                (float) g_chassis_actuator_diag.compensated_right_permille;
             sample.right_setpoint =
                 (float) g_chassis_actuator_diag.right_target_deci_rpm * 0.1f;
             sample.left_pid_proportional =
@@ -164,8 +172,20 @@ void SystemTask_Entry(void *context)
                 (uint8_t) CHASSIS_SPEED_PHASE_TRACKING) {
                 sample.flags |= TELEMETRY_CONTROL_FLAG_SPEED_TRACKING;
             }
+            if (g_chassis_actuator_diag.control_mode ==
+                (uint8_t) CHASSIS_ACTUATOR_MODE_HEADING) {
+                sample.flags |=
+                    TELEMETRY_CONTROL_FLAG_HEADING_CLOSED_LOOP;
+            } else if (g_chassis_actuator_diag.control_mode ==
+                (uint8_t) CHASSIS_ACTUATOR_MODE_DISTANCE) {
+                sample.flags |=
+                    TELEMETRY_CONTROL_FLAG_HEADING_CLOSED_LOOP |
+                    TELEMETRY_CONTROL_FLAG_DISTANCE_CLOSED_LOOP;
+            }
         }
+#if !ECHO_IMU_DIAGNOSTIC_CAPTURE
         (void) Telemetry_PublishControl(&sample);
+#endif
 
         finish_us = BSP_Time_GetUs();
         RtosDiagnostics_RecordSystemTiming(

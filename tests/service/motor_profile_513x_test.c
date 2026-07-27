@@ -27,7 +27,7 @@ int main(void)
     assert(profile->speed_pid.right_feedforward_offset_permille == 535.0f);
 #elif ECHO_MOTOR_PROFILE_SELECTION == ECHO_MOTOR_PROFILE_513X_4S
     assert(profile->profile_id == MOTOR_PROFILE_ID_513X_4S);
-    assert(profile->profile_version == 11U);
+    assert(profile->profile_version == 14U);
     assert(strcmp(profile->model_name, "MG513X-4S") == 0);
     assert(profile->start_pwm_permille == 600U);
     assert(profile->maximum_pwm_permille == 650U);
@@ -35,16 +35,18 @@ int main(void)
     assert(profile->speed_pid.boost_minimum_ms == 10U);
     assert(profile->speed_pid.boost_release_fraction == 0.25f);
     assert(profile->speed_pid.kp == 6.0f);
-    assert(profile->speed_pid.ki == 8.0f);
+    assert(profile->speed_pid.ki == 20.0f);
     assert(profile->speed_pid.kd == 0.0f);
+    assert(profile->speed_pid.integrator_limit == 200.0f);
     assert(profile->speed_pid.left_feedforward_offset_permille == 388.5f);
-    assert(profile->speed_pid.right_feedforward_offset_permille == 375.0f);
+    assert(profile->speed_pid.right_feedforward_offset_permille == 371.0f);
     assert(profile->speed_pid.left_feedforward_gain_permille_per_rpm ==
         1.93f);
     assert(profile->speed_pid.right_feedforward_gain_permille_per_rpm ==
-        2.70f);
+        2.17f);
     assert(profile->speed_pid.target_slew_rpm_per_s == 150.0f);
     assert(profile->speed_pid.target_slew_down_rpm_per_s == 90.0f);
+    assert(profile->control_reference_voltage_mv == 16580U);
 #else
 #error "This test only supports the 513X supply profiles."
 #endif
@@ -62,6 +64,8 @@ int main(void)
         56000U);
     assert(profile->wheel[MOTOR_WHEEL_RIGHT].counts_per_output_revolution ==
         14000U);
+    assert(profile->wheel[MOTOR_WHEEL_LEFT].encoder_count_sign == -1);
+    assert(profile->wheel[MOTOR_WHEEL_RIGHT].encoder_count_sign == 1);
 
     assert(g_motor_profile_diag.selection_valid == 1U);
     assert(MotorProfile_ActuatorTestReady());
@@ -85,7 +89,7 @@ int main(void)
     assert(!MotorProfile_NormalizeMotorPermille(
         MOTOR_WHEEL_COUNT, 100, &electrical_permille));
 
-    MotorProfile_UpdateEncoderSpeeds(560, -140, 10000U);
+    MotorProfile_UpdateEncoderSpeeds(-560, 140, 10000U);
     assert(g_motor_profile_diag.left_output_rpm > 59.99f);
     assert(g_motor_profile_diag.left_output_rpm < 60.01f);
     assert(g_motor_profile_diag.right_output_rpm > 59.99f);

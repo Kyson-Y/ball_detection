@@ -8,7 +8,8 @@
 #include "ui_input.h"
 
 typedef enum {
-    DIAGNOSTIC_PAGE_OVERVIEW = 0U,
+    DIAGNOSTIC_PAGE_CAR = 0U,
+    DIAGNOSTIC_PAGE_OVERVIEW,
     DIAGNOSTIC_PAGE_RTOS,
     DIAGNOSTIC_PAGE_COMM,
     DIAGNOSTIC_PAGE_DEVICE,
@@ -33,6 +34,19 @@ typedef struct {
     uint8_t parameter_mode;
     uint8_t parameter_result;
     ui_input_event_t last_event;
+    uint32_t battery_mv;
+    uint32_t supply_sample_count;
+    uint32_t supply_timeout_count;
+    float left_rpm;
+    float right_rpm;
+    int16_t left_target_deci_rpm;
+    int16_t right_target_deci_rpm;
+    uint8_t supply_valid;
+    uint8_t imu_online;
+    uint8_t imu_ready;
+    uint8_t imu_who_am_i;
+    uint8_t encoder_initialized;
+    uint8_t motor_profile_valid;
 } diagnostic_page_data_t;
 
 void DiagnosticPage_Render(const diagnostic_page_data_t *data);

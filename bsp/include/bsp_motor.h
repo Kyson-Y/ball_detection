@@ -15,10 +15,11 @@ typedef struct {
     uint32_t update_count;
     uint32_t force_safe_count;
     uint32_t rejected_command_count;
+    uint32_t brake_count;
     uint8_t initialized;
     uint8_t timer_running;
     uint8_t output_active;
-    uint8_t reserved;
+    uint8_t brake_active_mask;
 } bsp_motor_diagnostics_t;
 
 /* Watch/debug readers must treat this as read-only. */
@@ -28,5 +29,6 @@ void BSP_Motor_Init(void);
 void BSP_Motor_ForceSafe(void);
 bool BSP_Motor_SetFastDecay(
     bsp_motor_channel_t channel, int16_t electrical_permille);
+bool BSP_Motor_Brake(bsp_motor_channel_t channel);
 
 #endif

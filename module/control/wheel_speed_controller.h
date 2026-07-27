@@ -44,7 +44,7 @@ typedef struct {
     uint8_t initialized;
     uint8_t load_release_armed;
     uint8_t load_release_decay_active;
-    uint8_t reserved;
+    uint8_t deceleration_integrator_hold_active;
 } wheel_speed_controller_t;
 
 void WheelSpeedController_Init(wheel_speed_controller_t *controller,

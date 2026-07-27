@@ -94,6 +94,7 @@ void WheelSpeedController_PrimeOutput(wheel_speed_controller_t *controller,
         output_permille, -limit, limit);
     controller->load_release_armed = 0U;
     controller->load_release_decay_active = 0U;
+    controller->deceleration_integrator_hold_active = 0U;
 }
 
 int16_t WheelSpeedController_Update(wheel_speed_controller_t *controller,
@@ -119,6 +120,7 @@ int16_t WheelSpeedController_Update(wheel_speed_controller_t *controller,
     bool opposes_target;
     bool target_changed;
     bool target_ramping;
+    bool hold_deceleration_integrator;
     bool unwind_load_integrator;
 
     if (controller == NULL || controller->initialized == 0U ||
@@ -129,11 +131,22 @@ int16_t WheelSpeedController_Update(wheel_speed_controller_t *controller,
     WheelSpeedController_Observe(controller, measured_rpm);
     target_changed = WheelSpeedController_Abs(
         target_rpm - controller->requested_target_rpm) > 0.01f;
-    controller->requested_target_rpm = target_rpm;
     if (target_changed) {
+        if (target_rpm * controller->requested_target_rpm > 0.0f &&
+            WheelSpeedController_Abs(target_rpm) <
+                WheelSpeedController_Abs(
+                    controller->requested_target_rpm)) {
+            controller->deceleration_integrator_hold_active = 1U;
+            if (target_rpm * controller->integrator_permille < 0.0f) {
+                controller->integrator_permille = 0.0f;
+            }
+        } else {
+            controller->deceleration_integrator_hold_active = 0U;
+        }
         controller->load_release_armed = 0U;
         controller->load_release_decay_active = 0U;
     }
+    controller->requested_target_rpm = target_rpm;
     target_slew_rpm_per_s = controller->config.target_slew_rpm_per_s;
     if (controller->ramped_target_rpm * target_rpm < 0.0f) {
         target_slew_rpm_per_s =
@@ -189,8 +202,16 @@ int16_t WheelSpeedController_Update(wheel_speed_controller_t *controller,
     target_ramping = WheelSpeedController_Abs(
         controller->requested_target_rpm -
         controller->ramped_target_rpm) > 0.01f;
+    hold_deceleration_integrator =
+        controller->deceleration_integrator_hold_active != 0U &&
+        target_sign * controller->error_rpm <
+            -load_release_threshold_rpm;
+    if (controller->deceleration_integrator_hold_active != 0U &&
+        !hold_deceleration_integrator && !target_ramping) {
+        controller->deceleration_integrator_hold_active = 0U;
+    }
     candidate_integrator = controller->integrator_permille;
-    if (target_ramping) {
+    if (target_ramping || hold_deceleration_integrator) {
         controller->integrator_hold_count++;
     } else {
         integrator_delta =

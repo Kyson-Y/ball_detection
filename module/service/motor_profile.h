@@ -24,6 +24,7 @@
 #define MOTOR_PROFILE_VALID_STALL_THRESHOLD     (1UL << 14)
 #define MOTOR_PROFILE_VALID_SPEED_PID           (1UL << 15)
 #define MOTOR_PROFILE_VALID_MOTOR_OUTPUT_SIGNS  (1UL << 16)
+#define MOTOR_PROFILE_VALID_CONTROL_REFERENCE_VOLTAGE (1UL << 17)
 
 #define MOTOR_PROFILE_FLAG_PLACEHOLDER          (1UL << 0)
 #define MOTOR_PROFILE_FLAG_CPR_PROVISIONAL      (1UL << 1)
@@ -96,6 +97,7 @@ typedef struct {
     uint32_t valid_fields;
     uint32_t status_flags;
     uint32_t rated_voltage_mv;
+    uint32_t control_reference_voltage_mv;
     uint32_t rated_current_ma;
     uint32_t stall_current_ma;
     float gear_ratio;

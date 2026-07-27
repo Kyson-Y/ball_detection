@@ -2,10 +2,132 @@
 
 ```yaml
 handoff_schema: 1
-updated_at: 2026-07-19T23:04:40+08:00
+updated_at: 2026-07-28T00:45:00+08:00
 updated_by: Codex
-status: code_complete_hardware_followup
+status: 513x_chassis_closeout_before_zdt_pcb_test
 ```
+
+## 当前任务：513X阶段收尾，下一步测试PCB上的张大头/ZDT
+
+- 用户决定把原地转向到位后等待安全时限的问题留给未来正式自主任务；本次演示只是临时展示，
+  不修改转向完成逻辑。直接前进/倒车的万向轮扰动也明确 deferred，控制参数冻结。
+- 最终演示序列为右自旋360度、60 rpm前进1600 mm、右90度、40 rpm前进500 mm、
+  右90度、60 rpm前进1600 mm、右90度、40 rpm前进500 mm、左自旋360度、右90度、
+  40 rpm前进500 mm、直接40 rpm倒车500 mm。段间实际约140--170 ms。
+- 两轮完整12段演示通过：1600 mm实测1600.8--1601.3 mm，500 mm实测
+  500.3--500.8 mm，90度最大误差0.46度，360度最大误差0.39度；第二轮倒车最终偏航
+  +0.08度。最终零速ACK匹配且 `ActuatorOutputPermitted=0`。
+- `tools/chassis_demo_rectangle.ps1` 在成功和失败收尾都显式发送零速命令。原始采集保留在
+  ignored `tests/artifacts/rectangle-*`，不进入Git；摘要见
+  `docs/worklogs/2026-07-28_513x_continuous_motion_demo.md`。
+- 2026-07-28 FreeRTOS/App全量重建均为0 Error / 0 Warning；App Code=91080、
+  RO-data=3552、RW-data=188、ZI-data=19876；`git diff --check`通过。
+- worktree仍为 `C:\Users\Auror\ECHO-513a-work`，branch为
+  `refs/heads/codex/513a-motor-bringup`，HEAD仍是 `962867d`。累计源码、文档、测试和工具
+  尚未形成最终收尾提交，当前分支尚未push。`E:\ECHO` main仍有用户修改，禁止自动合并。
+- 下一阶段是复用 `C:\Users\Auror\ECHO-zdt-x42s-work` 已验证的张大头/ZDT Emm TTL后端，
+  测试正式PCB链路。旧第一代UART2 `PB15/PB16` 与当前正式ESP32 UART2冲突，不得直接照搬；
+  首选第二代UART3 `PB2 TX -> 电机RX`、`PB3 RX <- 电机TX`、GND共地，先只读地址0x01和
+  115200 8N1回包，再在用户现场、机构安全且可断电时做低速小角度运动。
+
+## 当前任务：513X整车装车自检与闭环准备
+
+- 用户明确要求把当前装车状态作为正式状态。正式硬件基线为：513X-4S/GMR 双电机，左编码器
+  `E1A->PA29`、`E1B->PA30`，右编码器 `E2A->PA25`、`E2B->PA24`；电池 ADC 分压
+  `300k/33k`。当前 MPU6500 已物理断开，I2C 正式接线仍是 `SDA->PA0`、`SCL->PA1`，
+  此前口述的 PB8/PB9 作废。
+- 双轮开环 `60%/1 s` 已执行并自动归零，用户现场确认两轮都朝小车前进方向转。有效输出恰好
+  100 个 100 Hz 控制周期；稳态约 97.65/93.86 rpm，电池 16.548--16.589 V，deadline=0。
+  前进时当前原始编码器计数为左负、右正，因此正式 Profile 的输出符号保持左 `+1`、右 `-1`，
+  编码器归一化符号改为左 `-1`、右 `+1`，513X-4S Profile 升为 v12。
+- 速度闭环已加入电池电压前馈补偿：以本车实测调参电压 `16.580 V` 为参考，速度闭环 PWM 按
+  `Vref/Vbat` 缩放；只接受 12--18 V 有效采样，连续约 0.5 s 无新样本即安全停机，补偿后
+  绝对占空比上限 90%。开环点动仍是直接电气占空比，不经过补偿。
+- MPU 已断开，因此正式装车配置 `ECHO_ENABLE_IMU=0`，不再探测或发布 IMU 遥测；这不会删除
+  驱动，后续接回时再显式启用。OLED、TFmini、灰度和 ESP 链路在当前基线中同样保持停用。
+- 新固件全量构建为 SysConfig 0 error、应用 0 Error/0 Warning；HEX SHA-256
+  `8D0E60997675B51CED429AC95A30E3979A2DE1FB796907428039A4C205879DDE`。无线 SWD 500 kHz
+  已烧录，快速 CRC 校验在无线链路超时后自动转逐字节回读，回读 SHA-256 一致并复位运行。
+- 烧录后静态设备状态干净：Profile v12、编码器符号 -1/+1、电池 16.556--16.581 V、100 Hz，
+  Active/Sticky/I2C/deadline/drop/encoder-late 均为 0，执行器关闭，IMU 遥测为 0。
+- 正式架空速度闭环验收：20 rpm/3 s 为 19.967/20.314 rpm，60 rpm/5 s 尾段为
+  60.055/60.124 rpm；30->70 rpm 阶跃 T90 为 310/260 ms、峰值 72.000/74.579 rpm、
+  70 rpm 尾段 70.216/70.262 rpm。三次均自动归零，设备 Health 全零。60 rpm 与阶跃采集
+  各有 1 个主机侧 CRC/gap，不属于设备端控制或串口 drop。
+- 架空速度环到此冻结。落地直线、轮胎负载差、电流/温升和不同电池电压实测尚未验收；航向环
+  必须在 IMU 重新接回并通过自检后进行，不能把架空双轮同速等同于已通过落地直行。
+
+- 工作树仍为 `C:\Users\Auror\ECHO-513a-work`，分支
+  `refs/heads/codex/513a-motor-bringup`，HEAD `962867d`；保留现有未提交的
+  ESP32/UART2、右编码器改线、红外改线、I2C和用户接线文档内容，不得覆盖或拆散。
+- 用户已完成PCB和513X/GMR双电机装车，轮子架空；当前声明接入外设仅为双电机/编码器、
+  MPU6050兼容模块、OLED和既有4S电池分压采样。本轮先做低风险自检，再做短时低输出测试。
+- 电脑端无线DAPLink主机枚举为 `FAED:4873`、序列号 `2e4c7219`、`COM18`；当前
+  COM18连续7秒为0字节，OpenOCD 500 kHz连接报 `cannot read IDR`，说明小车端无线从机/SWD
+  链路尚未到达目标板。未烧录、未读取板上变量、未发送电机命令。
+- 正在新增整车OLED默认状态页，并通过装车配置暂停未连接的循迹板、TFmini和ESP链路轮询；
+  电机输出继续默认锁定。整车页与配置已完成，FreeRTOS/App全量重建均为0 Error / 0 Warning，
+  HEX SHA-256为 `7ADFBC1E3C16378D8822057800C1F04C4839F0C4AE027BA09C80DF0E17002BC5`；
+  尚未烧录。下一条硬件动作是恢复小车端DAPLink供电/配对和SWD四线后重新探测。
+- 无线DAPLink后续恢复，主机 `2e4c7219` 已识别MSPM0并完成整车固件烧录/验证/复位。
+  分压实物确认为300k/33k，固件已同步修正；静态电池为16.565--16.605 V、100 Hz、ADC超时0。
+- 当前OLED按用户要求在装车配置中停用。替换回历史MPU6500后，0x68和AD0高时的0x69均为NACK，
+  尚未读到WHO_AM_I 0x70；因此结论为IMU供电/总线接线未通，不是身份值不兼容。
+- 双轮10 rpm/3 s旧闭环测试中左右测速为负的问题已经由后续开环实物观察定位为编码器符号错误；
+  用户确认机械方向为前进，故不改电机输出符号，只反转两侧编码器归一化符号。新 v12 固件烧录后
+  仍须先做架空低速闭环确认，不能直接落地。
+
+## 0.000000000 当前任务：双套天猛星与 ESP32-S3 端到端链路
+
+- 主机为天猛星 U0/COM4 + ESP32 USB/COM17，从机为天猛星 U0/COM7 + ESP32 USB/COM15；
+  两组均为 `PB15/UART2_TX -> ESP32 GPIO18/UART1_RX`、
+  `PB16/UART2_RX <- ESP32 GPIO17/UART1_TX`，各组共地且不并联 3.3 V。MaxiCam 未访问。
+- `bsp_esp_uart` 已改为双向 DMA：RX `DMA_CH1` Full Channel repeat-single 连续写 512 B
+  缓冲，TX `DMA_CH2` 以 FIFO empty 触发；正常路径不再逐字节读 RX FIFO或写 TX FIFO。
+- RX 生产位置由 ServiceTask 根据 DMA 剩余计数单调跟踪，避免硬件回卷与 ISR 计数之间的
+  竞态；ISR 只记录 DMA done/EOT 并在 repeat 通道异常停用时兜底重启。
+- UART2 最终为 `230400 8N1`；921600、460800、230400、115200 均已 A/B，当前跳线下
+  230400 综合误码最少。UART0 type 12 schema 2 可直接报告 DMA 与协议诊断。
+- 两块 ESP32 均把 `tools/esp32/espnow_uart_link.py` 持久化为 `main.py`，按 MAC 自动定主从；
+  ESP-NOW 信道 6，含 CRC、序号、ACK、15 ms 重试、去重、白名单、8 秒 WDT 和缓冲恢复。
+  文件 SHA-256 为 `C9D769D1E37F9AEEBE2E7B4082BE318B4F30EF7EC974EFE6E3687B5294F80DD6`。
+- 天猛星 PING 最多在 30/60/90/120 ms 同序号重发，160 ms 才记逻辑 timeout。最终全量构建
+  0 Error / 0 Warning，Code=80,748、ZI=20,028，HEX SHA-256
+  `B524E493244F2068F17D38026BDAE7C621F79F33CDC92FE300A2DE5A9EBB6459`；两块板均已
+  500 kHz program/verify/reset。
+- 三次重发的 180 秒样本为主机 1 次、从机 0 次逻辑 timeout；无线层 timeout/invalid/fail/drop
+  均为 0。最终四次重发版本 30 秒短测为主机 1,607/1,607、从机 1,639/1,639 TX/ACK，
+  两端新增 timeout/CRC/格式/异常序号/overflow/异常 IRQ 均为 0，DMA 持续 active。
+- 用户接受当前可靠性，不再继续追求长测绝对零错误。正式业务层下一步是把 PING 测试载荷替换为
+  双车/基站消息结构，并保留 ACK、去重、超时失联和执行器归零门禁。本次未发送任何电机命令。
+
+## 0.00000000 当前任务：右编码器引脚迁移
+
+- 用户确认右编码器改为 `E2A->PA25/U6-5`、`E2B->PA24/U6-6`；左编码器继续
+  `PA29/PA30` 硬件 QEI。
+- 红外 AD0/AD1/AD2 已迁到 `PB0/PB1/PB11`，PA24/PA25 当前无重复分配；UART、I2C、
+  按键、ADC、蜂鸣器和 LED 分配均未冲突。
+- `config/ECHO.syscfg` 已更新。生成结果为 GPIOA.25 上升沿中断、GPIOA.24 输入，
+  IRQ 为 `GPIOA_INT_IRQn` / `DL_INTERRUPT_GROUP1_IIDX_GPIOA`；现有
+  `GROUP1_IRQHandler` 与启动向量一致，无需修改 BSP 解码逻辑。
+- SysConfig 0 error / 1 个既有 warning；FreeRTOS/App 全量构建均为 0 Error / 0 Warning；
+  Code=77,420，RO-data=3,428，RW-data=188，ZI-data=19,044，HEX SHA-256
+  `E90D613C8BE05F2E90DA3EA55EE81649FA94713333D767BE2A20F3E45C445CB8`。
+- 用户明确要求本次不要烧录，因此未访问 MCU、未烧录、未回读、未板测。后续接线验证必须先断开
+  电机动力和 4S，仅给编码器 3.3 V，检查正反手转计数和静止零漂移。
+- 本工作树仍包含同一批未提交的红外改线和 I2C 内部弱上拉修改；不得覆盖、拆散或误报归属。
+
+## 0.0000000 当前任务：红外复用地址线迁移
+
+- 用户确认把八路红外灰度板的复用地址线迁移到 U6 下方排针。
+- 新接线固定为 `OUT->PA26/ADC0_CH1`、`AD0->PB0/U6-29`、
+  `AD1->PB1/U6-30`、`AD2->PB11/U6-33`；模拟 OUT 未迁移。
+- `config/ECHO.syscfg` 已更新，生成宏确认为 `GPIOB` 的 bit 0/1/11；
+  `bsp_reflectance` 继续一次掩码写入，不需要协议层改动。
+- FreeRTOS 与 App 全量构建均为 0 Error / 0 Warning；HEX SHA-256
+  `61F45C67FE54B046A767785E6619B3E8D09D572A8AF839605001810A3CBF675B`。
+- 尚未烧录，尚未按新线序执行八路扫描板测；换线必须断电，`EN/ERR` 保持原状态。
+- 同一工作树另有未提交的 I2C 内部弱上拉修改和用户已有接线文档修改，禁止覆盖或混淆归属。
 
 ## 0.000000 当前任务：TFmini-S I2C + OLED + MPU6xxx 联合驱动收尾
 
@@ -666,3 +788,117 @@ docs/worklogs/2026-07-15_phase2a_motor_profiles.md（未跟踪）
   the static capture together with a multimeter battery reading. Calibration
   factor is `multimeter_mv / adc_reported_mv`.
 - No motor command was sent. No files were staged, committed, or pushed.
+
+## 20. 2026-07-27 installed 513X low-speed synchronization
+
+- The installed baseline is the 513X-4S/GMR chassis with left encoder
+  PA29/PA30, right encoder PA25/PA24, and a 300k/33k battery divider.
+- Profile v13 changes the right feedforward model from `375 + 2.70*rpm` to
+  `371 + 2.17*rpm`, based on the measured 8/20/60 rpm holding outputs.
+- A same-direction non-zero down-step now clears an opposing old integrator and
+  holds reverse integration while measured speed remains materially above the
+  new target. Normal PI resumes inside the existing 3 rpm release threshold.
+  Rest starts, accelerations, reversals, and the common 60% start boost retain
+  their previous behavior.
+- Rest to 8 rpm: both wheels first moved at 10 ms, start skew was 0 ms, and the
+  last 100 frames averaged 8.023/8.049 rpm. Both wheels moved in 499/500 active
+  frames; the only boost frame was the intended common start boost.
+- 20 to 8 rpm: t90 was 360/390 ms, the final 200 frames averaged
+  7.849/7.935 rpm, all 499 post-step frames had both wheels moving, and no
+  recovery boost occurred. This supersedes the earlier repeating right-wheel
+  stall/34 rpm recovery cycle.
+- 8 to 20 rpm: t90 was 270/260 ms and the final 200 frames averaged
+  20.192/20.055 rpm. Device Health, timing, drops, encoder-late count, and final
+  actuator state were clean.
+- The suspended-wheel minimum continuous speed is 8 rpm. A 5 rpm request still
+  uses pulsed crawl and is not a smooth continuous PI operating point. Recheck
+  the minimum after the chassis is placed on the floor.
+- App build passed with 0 errors and 0 warnings. The flashed HEX SHA-256 is
+  `4BD5761A8C53A2F0DD0D4DED0D87065E6D5699498A11C3645727876C5E59CDF0`.
+  DAPLink `2e4c7219` program/verify/reset passed. Host tests for the v13 profile
+  and down-step integrator hold both compile and pass.
+- Final motor output is zero. The authoritative `E:\ECHO` main worktree remains
+  untouched; no files were staged, committed, or pushed.
+
+## 21. 2026-07-27 PA0/PA1 IMU validation
+
+- The current IMU is wired to I2C0 with SDA=PA0 and SCL=PA1 at 400 kHz. IMU
+  initialization, sampling, and telemetry are now enabled; OLED remains off.
+- Probe identified address `0x68` and `WHO_AM_I=0x68`, so the installed part is
+  handled as MPU6050, not the MPU6500-compatible `WHO_AM_I=0x70` profile.
+- A 10-second COM18 capture contained 253 IMU frames at 24.9 Hz. The device had
+  completed 2770 samples at 100 Hz with zero sample failures, completed all 300
+  stationary calibration samples, and reached READY/online/valid/calibrated.
+- The latest stationary sample was accel `(-0.0172, -0.1359, 1.0872) g`, norm
+  `1.0958 g`, calibrated gyro `(-0.0274, -0.0076, -0.0075) dps`, temperature
+  `31.32 C`, and telemetry age `2615 us`.
+- Device I2C error count, deadline misses, active/sticky issues, encoder-late
+  count, and motor output were zero. The host capture had 7 known DAPLink UART
+  CRC/gap events; this did not produce a device-side transport or I2C fault.
+- App build passed with 0 errors and 0 warnings. Current HEX SHA-256 is
+  `ABD6011458614DFD5C8B2AC3FB2821F81BD73C98FB092143F853989F060D92A6`.
+  Byte-for-byte Flash binary readback SHA-256 is
+  `2BE288F884E59772E14AAF0330842A7D62E11789287B560146A6EE507C875497`.
+- Final actuator output is zero. No files were staged, committed, or pushed.
+
+## 22. 2026-07-27 MPU6050 static precision characterization
+
+- A complete 100 Hz raw static capture established the installed MPU6050
+  baseline. The untracked Z residual was `0.01030 dps`, producing `0.6266 deg`
+  of integrated drift in 60.731 seconds.
+- Stationary bias tracking now starts only after one continuous second with
+  output disabled, applied PWM zero, both wheel speeds below `0.5 rpm`, all
+  gyro residuals below `0.5 dps`, and valid acceleration magnitude. Tracking
+  alpha is `0.002`; motion immediately freezes the bias.
+- The comparison capture reduced 60.730-second X/Y/Z drift to
+  `0.0348/-0.0554/0.0372 deg`; Z drift improved by approximately 94.1%.
+- Device IMU sampling and the future angle loop remain 100 Hz. Formal UART
+  control telemetry is 100 Hz and formal IMU telemetry is 25 Hz. The host tool
+  can also export compatible 64-byte legacy and new 88-byte diagnostic frames.
+- Acceleration norm averaged `1.0938 g`; do not apply a one-pose scale fix.
+  Six-face accelerometer calibration remains required before precision
+  absolute pitch/roll work.
+- Final formal build passed with 0 errors and 0 warnings. HEX SHA-256 is
+  `210D6AC1C67730664BA04C4B1EDD26C74559E03F9345CD9FF3CB39924D1E2748`.
+  DAPLink `2e4c7219` program/verify/reset passed. Final health, I2C, timing,
+  device drops, encoder-late count, and motor output are clean.
+- Evidence and complete numbers are in
+  `docs/worklogs/2026-07-27_mpu6050_pa0_pa1_validation.md`.
+
+## 23. 2026-07-27 MPU6050 temperature-ramp conclusion
+
+- A 15-minute hair-dryer experiment covered `29.927--39.451 C`; the capture
+  retained 21175 valid IMU frames and device sampling remained fault-free at
+  100 Hz.
+- The experiment confirms thermal gyro-bias movement but rejects a single
+  temperature coefficient. Z heating slope was `-0.006226 dps/C`, cooling
+  slope was `-0.012315 dps/C`, and equal-temperature hysteresis reached
+  `0.017--0.050 dps`.
+- Heating increased acceleration-norm standard deviation from `0.00244 g` to
+  `0.00654 g`, consistent with airflow vibration and thermal-gradient stress.
+- Do not add temperature compensation from this dataset. Keep the current
+  stationary bias tracker and require 30--60 seconds stationary after power-on
+  before precision operation.
+- Next engineering step is six-face accelerometer calibration, then a 100 Hz
+  attitude/angle estimator. A second slower and independently repeated thermal
+  ramp is the acceptance gate for future temperature compensation.
+
+## 24. 2026-07-27 installed MPU6050 six-face calibration
+
+- Six accepted static poses at approximately 30.1--30.5 C established the
+  installed sensor's diagonal accelerometer calibration.
+- Apply `corrected = (uncalibrated - bias) * scale` with bias X/Y/Z
+  `0.00825236/-0.01317945/0.07864387 g` and scale X/Y/Z
+  `1.00036323/0.99782687/0.99201797`.
+- Offline pose-mean norm error is at most about 0.29%. Fresh normal-pose
+  hardware validation measured mean norm `1.00409 g`, latest norm `1.00019 g`,
+  and norm standard deviation `0.00222 g`.
+- Constants are intentionally vehicle-specific in
+  `config/vehicle_bringup_config.h`; sensor replacement or remounting requires
+  recalibration.
+- Formal build and DAPLink verification passed. Final HEX SHA-256 is
+  `F8333A274EB99B51C327469AA3171327D03E905E81AFB35CD94361B3129AA3EF`.
+  Device sampling remains 100 Hz; I2C, health, timing, drops, and actuator
+  output are clean.
+- Next action: implement and validate the 100 Hz attitude/angle estimator
+  before enabling any chassis angle-loop output.

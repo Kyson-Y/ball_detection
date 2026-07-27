@@ -5,8 +5,10 @@
 #include <stdint.h>
 
 #include "FreeRTOS.h"
+#include "attitude_estimator.h"
 #include "bsp_reflectance.h"
 #include "bsp_supply_voltage.h"
+#include "esp_uart_link_test.h"
 #include "imu_service.h"
 #include "motor_profile.h"
 #include "system_health.h"
@@ -25,6 +27,8 @@
 #define TELEMETRY_FRAME_TYPE_SUPPLY_VOLTAGE 9U
 #define TELEMETRY_FRAME_TYPE_TFMINI       10U
 #define TELEMETRY_FRAME_TYPE_IMU           11U
+#define TELEMETRY_FRAME_TYPE_ESP_LINK      12U
+#define TELEMETRY_FRAME_TYPE_ATTITUDE      13U
 #define TELEMETRY_CONTROL_PAYLOAD_BYTES   96U
 #define TELEMETRY_CONTROL_FRAME_BYTES     112U
 #define TELEMETRY_PARAMETER_ACK_PAYLOAD_BYTES 16U
@@ -39,8 +43,12 @@
 #define TELEMETRY_SUPPLY_VOLTAGE_FRAME_BYTES   40U
 #define TELEMETRY_TFMINI_PAYLOAD_BYTES     64U
 #define TELEMETRY_TFMINI_FRAME_BYTES       80U
-#define TELEMETRY_IMU_PAYLOAD_BYTES        64U
-#define TELEMETRY_IMU_FRAME_BYTES          80U
+#define TELEMETRY_IMU_PAYLOAD_BYTES        88U
+#define TELEMETRY_IMU_FRAME_BYTES         104U
+#define TELEMETRY_ESP_LINK_PAYLOAD_BYTES   96U
+#define TELEMETRY_ESP_LINK_FRAME_BYTES     112U
+#define TELEMETRY_ATTITUDE_PAYLOAD_BYTES    64U
+#define TELEMETRY_ATTITUDE_FRAME_BYTES      80U
 #define TELEMETRY_HEALTH_PAYLOAD_BYTES    116U
 #define TELEMETRY_HEALTH_FRAME_BYTES      132U
 #define TELEMETRY_MAX_FRAME_BYTES         TELEMETRY_HEALTH_FRAME_BYTES
@@ -54,6 +62,8 @@
 #define TELEMETRY_CONTROL_FLAG_SPEED_CLOSED_LOOP (1UL << 5)
 #define TELEMETRY_CONTROL_FLAG_SPEED_BOOST       (1UL << 6)
 #define TELEMETRY_CONTROL_FLAG_SPEED_TRACKING    (1UL << 7)
+#define TELEMETRY_CONTROL_FLAG_HEADING_CLOSED_LOOP (1UL << 8)
+#define TELEMETRY_CONTROL_FLAG_DISTANCE_CLOSED_LOOP (1UL << 9)
 
 /* The first 44 bytes retain the legacy speed mapping. New fields are
  * append-only so 40-byte and 44-byte host decoders remain usable. */
@@ -136,6 +146,12 @@ typedef struct {
     uint32_t imu_attempt_count;
     uint32_t imu_accepted_count;
     uint32_t imu_dropped_count;
+    uint32_t esp_link_attempt_count;
+    uint32_t esp_link_accepted_count;
+    uint32_t esp_link_dropped_count;
+    uint32_t attitude_attempt_count;
+    uint32_t attitude_accepted_count;
+    uint32_t attitude_dropped_count;
     uint32_t health_attempt_count;
     uint32_t health_accepted_count;
     uint32_t health_dropped_count;
@@ -175,6 +191,10 @@ bool Telemetry_PublishSupplyVoltage(
 bool Telemetry_PublishTfmini(
     const telemetry_tfmini_sample_t *sample);
 bool Telemetry_PublishImu(const imu_service_snapshot_t *snapshot);
+bool Telemetry_PublishEspLink(
+    const esp_uart_link_test_snapshot_t *snapshot);
+bool Telemetry_PublishAttitude(
+    const attitude_estimator_snapshot_t *snapshot);
 bool Telemetry_PublishHealth(const system_health_snapshot_t *snapshot);
 
 #endif

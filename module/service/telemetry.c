@@ -3,7 +3,9 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "bsp_esp_uart.h"
 #include "bsp_time.h"
+#include "ti_msp_dl_config.h"
 #include "queue.h"
 #include "serial_tx.h"
 
@@ -31,7 +33,9 @@ typedef enum {
     TELEMETRY_MESSAGE_REFLECTANCE = 6U,
     TELEMETRY_MESSAGE_SUPPLY_VOLTAGE = 7U,
     TELEMETRY_MESSAGE_TFMINI = 8U,
-    TELEMETRY_MESSAGE_IMU = 9U
+    TELEMETRY_MESSAGE_IMU = 9U,
+    TELEMETRY_MESSAGE_ESP_LINK = 10U,
+    TELEMETRY_MESSAGE_ATTITUDE = 11U
 } telemetry_message_kind_t;
 
 typedef struct {
@@ -114,6 +118,8 @@ typedef struct {
         bsp_supply_voltage_sample_t supply_voltage;
         telemetry_tfmini_sample_t tfmini;
         imu_service_snapshot_t imu;
+        esp_uart_link_test_snapshot_t esp_link;
+        attitude_estimator_snapshot_t attitude;
         telemetry_health_sample_t health;
     } data;
 } telemetry_message_t;
@@ -509,6 +515,89 @@ static uint16_t Telemetry_EncodeImu(
         g_imu_service_diag.sample_success_count);
     Telemetry_PutU32(&payload[60],
         g_imu_service_diag.sample_failure_count);
+    Telemetry_PutFloat(&payload[64], snapshot->gyro_raw_dps[0]);
+    Telemetry_PutFloat(&payload[68], snapshot->gyro_raw_dps[1]);
+    Telemetry_PutFloat(&payload[72], snapshot->gyro_raw_dps[2]);
+    Telemetry_PutFloat(&payload[76], snapshot->gyro_bias_dps[0]);
+    Telemetry_PutFloat(&payload[80], snapshot->gyro_bias_dps[1]);
+    Telemetry_PutFloat(&payload[84], snapshot->gyro_bias_dps[2]);
+    return Telemetry_EndFrame(frame, payload_length);
+}
+
+static uint16_t Telemetry_EncodeEspLink(
+    const telemetry_message_t *message, uint8_t *frame)
+{
+    const esp_uart_link_test_snapshot_t *snapshot =
+        &message->data.esp_link;
+    const volatile bsp_esp_uart_diagnostics_t *uart =
+        BSP_EspUart_GetDiagnostics();
+    uint8_t *payload = &frame[FRAME_OFFSET_PAYLOAD];
+    uint16_t payload_length = TELEMETRY_ESP_LINK_PAYLOAD_BYTES;
+
+    (void) Telemetry_BeginFrame(frame, TELEMETRY_FRAME_TYPE_ESP_LINK,
+        payload_length, message->sequence, message->timestamp_us);
+    Telemetry_PutU16(&payload[0], 2U);
+    payload[2] = snapshot->link_online;
+    payload[3] = snapshot->outstanding;
+    Telemetry_PutU32(&payload[4], snapshot->tx_frame_count);
+    Telemetry_PutU32(&payload[8], snapshot->ack_frame_count);
+    Telemetry_PutU32(&payload[12], snapshot->timeout_count);
+    Telemetry_PutU32(&payload[16], snapshot->crc_error_count);
+    Telemetry_PutU32(&payload[20], snapshot->format_error_count);
+    Telemetry_PutU32(&payload[24],
+        snapshot->unexpected_sequence_count);
+    Telemetry_PutU32(&payload[28], uart->rx_byte_count);
+    Telemetry_PutU32(&payload[32], uart->tx_byte_count);
+    Telemetry_PutU32(&payload[36], uart->rx_overflow_count);
+    Telemetry_PutU32(&payload[40], snapshot->minimum_rtt_us);
+    Telemetry_PutU32(&payload[44], snapshot->average_rtt_us);
+    Telemetry_PutU32(&payload[48], snapshot->maximum_rtt_us);
+    Telemetry_PutU32(&payload[52], snapshot->last_rtt_us);
+    Telemetry_PutU32(&payload[56], snapshot->last_sequence);
+    Telemetry_PutU32(&payload[60], ESP_LINK_UART_BAUD_RATE);
+    Telemetry_PutU32(&payload[64], uart->rx_dma_done_count);
+    Telemetry_PutU32(&payload[68], uart->rx_dma_restart_count);
+    Telemetry_PutU32(&payload[72], uart->tx_dma_done_count);
+    Telemetry_PutU32(&payload[76], uart->tx_eot_count);
+    Telemetry_PutU32(&payload[80], uart->irq_entry_count);
+    Telemetry_PutU32(&payload[84], uart->unexpected_iidx_count);
+    Telemetry_PutU16(&payload[88], uart->rx_high_water_bytes);
+    Telemetry_PutU16(&payload[90], uart->tx_active_length);
+    payload[92] = uart->tx_busy;
+    payload[93] = uart->initialized;
+    payload[94] = uart->rx_dma_active;
+    payload[95] = uart->tx_line_idle;
+    return Telemetry_EndFrame(frame, payload_length);
+}
+
+static uint16_t Telemetry_EncodeAttitude(
+    const telemetry_message_t *message, uint8_t *frame)
+{
+    const attitude_estimator_snapshot_t *snapshot =
+        &message->data.attitude;
+    uint8_t *payload = &frame[FRAME_OFFSET_PAYLOAD];
+    uint16_t payload_length = TELEMETRY_ATTITUDE_PAYLOAD_BYTES;
+
+    (void) Telemetry_BeginFrame(frame, TELEMETRY_FRAME_TYPE_ATTITUDE,
+        payload_length, message->sequence, message->timestamp_us);
+    Telemetry_PutU16(&payload[0], snapshot->version);
+    payload[2] = snapshot->flags;
+    payload[3] = 0U;
+    Telemetry_PutU32(&payload[4], snapshot->imu_sample_count);
+    Telemetry_PutU32(&payload[8], snapshot->timestamp_us);
+    Telemetry_PutU32(&payload[12], snapshot->update_sequence);
+    Telemetry_PutFloat(&payload[16], snapshot->roll_deg);
+    Telemetry_PutFloat(&payload[20], snapshot->pitch_deg);
+    Telemetry_PutFloat(&payload[24], snapshot->yaw_deg);
+    Telemetry_PutFloat(&payload[28], snapshot->axis_rate_dps[0]);
+    Telemetry_PutFloat(&payload[32], snapshot->axis_rate_dps[1]);
+    Telemetry_PutFloat(&payload[36], snapshot->axis_rate_dps[2]);
+    Telemetry_PutFloat(&payload[40], snapshot->accel_norm_g);
+    Telemetry_PutFloat(&payload[44], snapshot->accel_weight);
+    Telemetry_PutFloat(&payload[48], snapshot->dt_s);
+    Telemetry_PutU32(&payload[52], snapshot->processed_count);
+    Telemetry_PutU32(&payload[56], snapshot->rejected_count);
+    Telemetry_PutU32(&payload[60], snapshot->timing_reset_count);
     return Telemetry_EndFrame(frame, payload_length);
 }
 
@@ -562,10 +651,18 @@ static void Telemetry_Task(void *context)
             frame_length = Telemetry_EncodeTfmini(&message, frame);
             g_telemetry_diag.last_frame_type =
                 TELEMETRY_FRAME_TYPE_TFMINI;
-        } else {
+        } else if (message.kind == TELEMETRY_MESSAGE_IMU) {
             frame_length = Telemetry_EncodeImu(&message, frame);
             g_telemetry_diag.last_frame_type =
                 TELEMETRY_FRAME_TYPE_IMU;
+        } else if (message.kind == TELEMETRY_MESSAGE_ESP_LINK) {
+            frame_length = Telemetry_EncodeEspLink(&message, frame);
+            g_telemetry_diag.last_frame_type =
+                TELEMETRY_FRAME_TYPE_ESP_LINK;
+        } else {
+            frame_length = Telemetry_EncodeAttitude(&message, frame);
+            g_telemetry_diag.last_frame_type =
+                TELEMETRY_FRAME_TYPE_ATTITUDE;
         }
 
         crc_offset = (uint16_t) (frame_length - 2U);
@@ -835,6 +932,52 @@ bool Telemetry_PublishImu(const imu_service_snapshot_t *snapshot)
         g_telemetry_diag.imu_accepted_count++;
     } else {
         g_telemetry_diag.imu_dropped_count++;
+    }
+    return accepted;
+}
+
+bool Telemetry_PublishEspLink(
+    const esp_uart_link_test_snapshot_t *snapshot)
+{
+    telemetry_message_t message;
+    bool accepted;
+
+    g_telemetry_diag.esp_link_attempt_count++;
+    if ((snapshot == NULL) || (s_queue == NULL)) {
+        g_telemetry_diag.esp_link_dropped_count++;
+        return false;
+    }
+
+    message.kind = TELEMETRY_MESSAGE_ESP_LINK;
+    message.data.esp_link = *snapshot;
+    accepted = Telemetry_EnqueueMessage(&message);
+    if (accepted) {
+        g_telemetry_diag.esp_link_accepted_count++;
+    } else {
+        g_telemetry_diag.esp_link_dropped_count++;
+    }
+    return accepted;
+}
+
+bool Telemetry_PublishAttitude(
+    const attitude_estimator_snapshot_t *snapshot)
+{
+    telemetry_message_t message;
+    bool accepted;
+
+    g_telemetry_diag.attitude_attempt_count++;
+    if ((snapshot == NULL) || (s_queue == NULL)) {
+        g_telemetry_diag.attitude_dropped_count++;
+        return false;
+    }
+
+    message.kind = TELEMETRY_MESSAGE_ATTITUDE;
+    message.data.attitude = *snapshot;
+    accepted = Telemetry_EnqueueMessage(&message);
+    if (accepted) {
+        g_telemetry_diag.attitude_accepted_count++;
+    } else {
+        g_telemetry_diag.attitude_dropped_count++;
     }
     return accepted;
 }

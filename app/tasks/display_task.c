@@ -4,13 +4,19 @@
 #include <string.h>
 
 #include "bsp_i2c.h"
+#include "bsp_encoder.h"
+#include "bsp_supply_voltage.h"
+#include "chassis_actuator.h"
 #include "diagnostic_page.h"
+#include "imu_service.h"
+#include "motor_profile.h"
 #include "parameter_service.h"
 #include "rtos_diagnostics.h"
 #include "serial_tx.h"
 #include "ssd1306.h"
 #include "system_health.h"
 #include "ui_input.h"
+#include "vehicle_bringup_config.h"
 
 #define DISPLAY_POWER_UP_DELAY pdMS_TO_TICKS(100U)
 #define DISPLAY_ONLINE_PERIOD  pdMS_TO_TICKS(500U)
@@ -236,6 +242,26 @@ static void DisplayTask_Render(void)
     data.last_event.kind =
         (ui_event_kind_t) g_display_task_diag.last_event_kind;
     data.key_event_count = g_display_task_diag.key_event_count;
+    data.battery_mv = g_bsp_supply_voltage_diag.battery_mv;
+    data.supply_sample_count = g_bsp_supply_voltage_diag.sample_count;
+    data.supply_timeout_count =
+        g_bsp_supply_voltage_diag.conversion_timeout_count;
+    data.supply_valid =
+        (g_bsp_supply_voltage_diag.last_conversion_ok != 0U) &&
+        (data.battery_mv >= 8000U) && (data.battery_mv <= 18000U);
+    data.imu_online = g_imu_service_diag.online;
+    data.imu_ready = g_imu_service_diag.ready;
+    data.imu_who_am_i = g_imu_service_snapshot.who_am_i;
+    data.left_rpm = g_motor_profile_diag.left_output_rpm;
+    data.right_rpm = g_motor_profile_diag.right_output_rpm;
+    data.left_target_deci_rpm =
+        g_chassis_actuator_diag.left_target_deci_rpm;
+    data.right_target_deci_rpm =
+        g_chassis_actuator_diag.right_target_deci_rpm;
+    data.encoder_initialized =
+        (g_bsp_encoder_diag.left.initialized != 0U) &&
+        (g_bsp_encoder_diag.right.initialized != 0U);
+    data.motor_profile_valid = g_motor_profile_diag.selection_valid;
     metadata = ParameterService_GetMetadataByIndex(
         g_display_task_diag.parameter_index);
     data.parameter_metadata = metadata;
@@ -283,7 +309,7 @@ void DisplayTask_Init(void)
     memset((void *) &g_display_task_diag, 0,
         sizeof(g_display_task_diag));
     g_display_debug_refresh_enable = 1U;
-    g_display_debug_force_offline = 0U;
+    g_display_debug_force_offline = ECHO_ENABLE_OLED ? 0U : 1U;
     g_display_task_diag.last_i2c_result =
         (uint32_t) BSP_I2C_RESULT_NOT_INITIALIZED;
     g_display_task_diag.last_key = (uint8_t) UI_KEY_NONE;

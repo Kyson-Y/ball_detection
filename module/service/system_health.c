@@ -173,6 +173,8 @@ static uint32_t SystemHealth_TelemetryDropCount(void)
         g_telemetry_diag.supply_voltage_dropped_count +
         g_telemetry_diag.tfmini_dropped_count +
         g_telemetry_diag.imu_dropped_count +
+        g_telemetry_diag.esp_link_dropped_count +
+        g_telemetry_diag.attitude_dropped_count +
         g_telemetry_diag.health_dropped_count +
         g_telemetry_diag.transport_dropped_count;
 }

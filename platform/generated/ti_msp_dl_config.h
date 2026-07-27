@@ -190,6 +190,22 @@ bool SYSCFG_DL_SYSCTL_SYSPLL_init(void);
 #define LIDAR_UART_BAUD_RATE                                            (115200)
 #define LIDAR_UART_IBRD_40_MHZ_115200_BAUD                                  (21)
 #define LIDAR_UART_FBRD_40_MHZ_115200_BAUD                                  (45)
+/* Defines for ESP_LINK_UART */
+#define ESP_LINK_UART_INST                                                 UART2
+#define ESP_LINK_UART_INST_FREQUENCY                                    40000000
+#define ESP_LINK_UART_INST_IRQHandler                           UART2_IRQHandler
+#define ESP_LINK_UART_INST_INT_IRQN                               UART2_INT_IRQn
+#define GPIO_ESP_LINK_UART_RX_PORT                                         GPIOB
+#define GPIO_ESP_LINK_UART_TX_PORT                                         GPIOB
+#define GPIO_ESP_LINK_UART_RX_PIN                                 DL_GPIO_PIN_16
+#define GPIO_ESP_LINK_UART_TX_PIN                                 DL_GPIO_PIN_15
+#define GPIO_ESP_LINK_UART_IOMUX_RX                              (IOMUX_PINCM33)
+#define GPIO_ESP_LINK_UART_IOMUX_TX                              (IOMUX_PINCM32)
+#define GPIO_ESP_LINK_UART_IOMUX_RX_FUNC               IOMUX_PINCM33_PF_UART2_RX
+#define GPIO_ESP_LINK_UART_IOMUX_TX_FUNC               IOMUX_PINCM32_PF_UART2_TX
+#define ESP_LINK_UART_BAUD_RATE                                         (230400)
+#define ESP_LINK_UART_IBRD_40_MHZ_230400_BAUD                               (10)
+#define ESP_LINK_UART_FBRD_40_MHZ_230400_BAUD                               (54)
 
 
 
@@ -224,6 +240,12 @@ bool SYSCFG_DL_SYSCTL_SYSPLL_init(void);
 /* Defines for DEBUG_UART_TX_DMA */
 #define DEBUG_UART_TX_DMA_CHAN_ID                                            (3)
 #define DEBUG_UART_INST_DMA_TRIGGER                          (DMA_UART0_TX_TRIG)
+/* Defines for ESP_LINK_UART_RX_DMA */
+#define ESP_LINK_UART_RX_DMA_CHAN_ID                                         (1)
+#define ESP_LINK_UART_INST_DMA_TRIGGER_0                     (DMA_UART2_RX_TRIG)
+/* Defines for ESP_LINK_UART_TX_DMA */
+#define ESP_LINK_UART_TX_DMA_CHAN_ID                                         (2)
+#define ESP_LINK_UART_INST_DMA_TRIGGER_1                     (DMA_UART2_TX_TRIG)
 
 
 /* Port definition for Pin Group GPIO_LEDS */
@@ -233,30 +255,30 @@ bool SYSCFG_DL_SYSCTL_SYSPLL_init(void);
 #define GPIO_LEDS_USER_LED_1_PIN                                (DL_GPIO_PIN_22)
 #define GPIO_LEDS_USER_LED_1_IOMUX                               (IOMUX_PINCM50)
 /* Port definition for Pin Group GPIO_RIGHT_ENCODER */
-#define GPIO_RIGHT_ENCODER_PORT                                          (GPIOB)
+#define GPIO_RIGHT_ENCODER_PORT                                          (GPIOA)
 
-/* Defines for RIGHT_ENCODER_E2A: GPIOB.6 with pinCMx 23 on package pin 58 */
+/* Defines for RIGHT_ENCODER_E2A: GPIOA.25 with pinCMx 55 on package pin 26 */
 // pins affected by this interrupt request:["RIGHT_ENCODER_E2A"]
-#define GPIO_RIGHT_ENCODER_INT_IRQN                             (GPIOB_INT_IRQn)
-#define GPIO_RIGHT_ENCODER_INT_IIDX             (DL_INTERRUPT_GROUP1_IIDX_GPIOB)
-#define GPIO_RIGHT_ENCODER_RIGHT_ENCODER_E2A_IIDX            (DL_GPIO_IIDX_DIO6)
-#define GPIO_RIGHT_ENCODER_RIGHT_ENCODER_E2A_PIN                 (DL_GPIO_PIN_6)
-#define GPIO_RIGHT_ENCODER_RIGHT_ENCODER_E2A_IOMUX               (IOMUX_PINCM23)
-/* Defines for RIGHT_ENCODER_E2B: GPIOB.7 with pinCMx 24 on package pin 59 */
-#define GPIO_RIGHT_ENCODER_RIGHT_ENCODER_E2B_PIN                 (DL_GPIO_PIN_7)
-#define GPIO_RIGHT_ENCODER_RIGHT_ENCODER_E2B_IOMUX               (IOMUX_PINCM24)
+#define GPIO_RIGHT_ENCODER_INT_IRQN                             (GPIOA_INT_IRQn)
+#define GPIO_RIGHT_ENCODER_INT_IIDX             (DL_INTERRUPT_GROUP1_IIDX_GPIOA)
+#define GPIO_RIGHT_ENCODER_RIGHT_ENCODER_E2A_IIDX           (DL_GPIO_IIDX_DIO25)
+#define GPIO_RIGHT_ENCODER_RIGHT_ENCODER_E2A_PIN                (DL_GPIO_PIN_25)
+#define GPIO_RIGHT_ENCODER_RIGHT_ENCODER_E2A_IOMUX               (IOMUX_PINCM55)
+/* Defines for RIGHT_ENCODER_E2B: GPIOA.24 with pinCMx 54 on package pin 25 */
+#define GPIO_RIGHT_ENCODER_RIGHT_ENCODER_E2B_PIN                (DL_GPIO_PIN_24)
+#define GPIO_RIGHT_ENCODER_RIGHT_ENCODER_E2B_IOMUX               (IOMUX_PINCM54)
 /* Port definition for Pin Group GPIO_REFLECTANCE_MUX */
-#define GPIO_REFLECTANCE_MUX_PORT                                        (GPIOA)
+#define GPIO_REFLECTANCE_MUX_PORT                                        (GPIOB)
 
-/* Defines for REFLECTANCE_AD0: GPIOA.27 with pinCMx 60 on package pin 31 */
-#define GPIO_REFLECTANCE_MUX_REFLECTANCE_AD0_PIN                (DL_GPIO_PIN_27)
-#define GPIO_REFLECTANCE_MUX_REFLECTANCE_AD0_IOMUX               (IOMUX_PINCM60)
-/* Defines for REFLECTANCE_AD1: GPIOA.24 with pinCMx 54 on package pin 25 */
-#define GPIO_REFLECTANCE_MUX_REFLECTANCE_AD1_PIN                (DL_GPIO_PIN_24)
-#define GPIO_REFLECTANCE_MUX_REFLECTANCE_AD1_IOMUX               (IOMUX_PINCM54)
-/* Defines for REFLECTANCE_AD2: GPIOA.25 with pinCMx 55 on package pin 26 */
-#define GPIO_REFLECTANCE_MUX_REFLECTANCE_AD2_PIN                (DL_GPIO_PIN_25)
-#define GPIO_REFLECTANCE_MUX_REFLECTANCE_AD2_IOMUX               (IOMUX_PINCM55)
+/* Defines for REFLECTANCE_AD0: GPIOB.0 with pinCMx 12 on package pin 47 */
+#define GPIO_REFLECTANCE_MUX_REFLECTANCE_AD0_PIN                 (DL_GPIO_PIN_0)
+#define GPIO_REFLECTANCE_MUX_REFLECTANCE_AD0_IOMUX               (IOMUX_PINCM12)
+/* Defines for REFLECTANCE_AD1: GPIOB.1 with pinCMx 13 on package pin 48 */
+#define GPIO_REFLECTANCE_MUX_REFLECTANCE_AD1_PIN                 (DL_GPIO_PIN_1)
+#define GPIO_REFLECTANCE_MUX_REFLECTANCE_AD1_IOMUX               (IOMUX_PINCM13)
+/* Defines for REFLECTANCE_AD2: GPIOB.11 with pinCMx 28 on package pin 63 */
+#define GPIO_REFLECTANCE_MUX_REFLECTANCE_AD2_PIN                (DL_GPIO_PIN_11)
+#define GPIO_REFLECTANCE_MUX_REFLECTANCE_AD2_IOMUX               (IOMUX_PINCM28)
 
 
 /* clang-format on */
@@ -274,6 +296,7 @@ void SYSCFG_DL_TIMEBASE_init(void);
 void SYSCFG_DL_OLED_I2C_init(void);
 void SYSCFG_DL_DEBUG_UART_init(void);
 void SYSCFG_DL_LIDAR_UART_init(void);
+void SYSCFG_DL_ESP_LINK_UART_init(void);
 void SYSCFG_DL_REFLECTANCE_ADC_init(void);
 void SYSCFG_DL_SUPPLY_ADC_init(void);
 void SYSCFG_DL_DMA_init(void);

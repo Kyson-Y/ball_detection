@@ -13,6 +13,8 @@ param(
     [ValidateRange(0, 10)]
     [int]$FlushSeconds = 1,
     [string]$CsvPath = "",
+    [string]$ImuCsvPath = "",
+    [string]$AttitudeCsvPath = "",
     [string]$JsonPath = ""
 )
 
@@ -30,6 +32,8 @@ $ReflectanceFrameType = 8
 $SupplyVoltageFrameType = 9
 $TfminiFrameType = 10
 $ImuFrameType = 11
+$EspLinkFrameType = 12
+$AttitudeFrameType = 13
 $LegacyControlPayloadLength = 40
 $DualOutputControlPayloadLength = 44
 $ControlPayloadLength = 96
@@ -41,7 +45,11 @@ $MotorProfilePayloadLength = 36
 $ReflectancePayloadLength = 36
 $SupplyVoltagePayloadLength = 24
 $TfminiPayloadLength = 64
-$ImuPayloadLength = 64
+$LegacyImuPayloadLength = 64
+$ImuPayloadLength = 88
+$LegacyEspLinkPayloadLength = 64
+$EspLinkPayloadLength = 96
+$AttitudePayloadLength = 64
 $MinimumFrameLength = 16
 $MaximumPayloadLength = 128
 [uint64]$U32HalfRange = 2147483648
@@ -195,6 +203,61 @@ if (-not [string]::IsNullOrWhiteSpace($CsvPath)) {
     )
 }
 
+function Format-OptionalFloat {
+    param($Value, [System.Globalization.CultureInfo]$Culture)
+
+    if ($null -eq $Value) {
+        return ""
+    }
+    return $Value.ToString("R", $Culture)
+}
+
+$imuCsvWriter = $null
+if (-not [string]::IsNullOrWhiteSpace($ImuCsvPath)) {
+    $resolvedImuCsvPath = [System.IO.Path]::GetFullPath($ImuCsvPath)
+    $imuCsvDirectory = Split-Path -Parent $resolvedImuCsvPath
+    if (-not [string]::IsNullOrWhiteSpace($imuCsvDirectory)) {
+        New-Item -ItemType Directory -Path $imuCsvDirectory -Force | Out-Null
+    }
+    $imuCsvWriter = [System.IO.StreamWriter]::new(
+        $resolvedImuCsvPath,
+        $false,
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    $imuCsvWriter.WriteLine(
+        "sequence,timestamp_us,sample_sequence,measurement_timestamp_us," +
+        "age_us,update_sequence,accel_x_g,accel_y_g,accel_z_g,accel_norm_g," +
+        "gyro_filtered_x_dps,gyro_filtered_y_dps,gyro_filtered_z_dps," +
+        "gyro_raw_x_dps,gyro_raw_y_dps,gyro_raw_z_dps," +
+        "gyro_unfiltered_x_dps,gyro_unfiltered_y_dps,gyro_unfiltered_z_dps," +
+        "gyro_bias_x_dps,gyro_bias_y_dps,gyro_bias_z_dps,temperature_c," +
+        "calibration_samples,calibration_target_samples,state,address," +
+        "who_am_i,flags,sample_success_count,sample_failure_count"
+    )
+}
+
+$attitudeCsvWriter = $null
+if (-not [string]::IsNullOrWhiteSpace($AttitudeCsvPath)) {
+    $resolvedAttitudeCsvPath = [System.IO.Path]::GetFullPath($AttitudeCsvPath)
+    $attitudeCsvDirectory = Split-Path -Parent $resolvedAttitudeCsvPath
+    if (-not [string]::IsNullOrWhiteSpace($attitudeCsvDirectory)) {
+        New-Item -ItemType Directory -Path $attitudeCsvDirectory -Force |
+            Out-Null
+    }
+    $attitudeCsvWriter = [System.IO.StreamWriter]::new(
+        $resolvedAttitudeCsvPath,
+        $false,
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    $attitudeCsvWriter.WriteLine(
+        "sequence,timestamp_us,imu_sample_count,measurement_timestamp_us," +
+        "age_us,update_sequence,roll_deg,pitch_deg,yaw_deg," +
+        "roll_rate_dps,pitch_rate_dps,yaw_rate_dps,accel_norm_g," +
+        "accel_weight,dt_s,processed_count,rejected_count," +
+        "timing_reset_count,flags"
+    )
+}
+
 $culture = [System.Globalization.CultureInfo]::InvariantCulture
 $offset = 0
 $validFrames = 0
@@ -207,6 +270,8 @@ $reflectanceFrames = 0
 $supplyVoltageFrames = 0
 $tfminiFrames = 0
 $imuFrames = 0
+$espLinkFrames = 0
+$attitudeFrames = 0
 $unknownFrames = 0
 $crcErrors = 0
 [uint64]$sequenceGaps = 0
@@ -240,6 +305,12 @@ $firstImuTimestamp = $null
 $lastImuTimestamp = $null
 $firstImuSampleSequence = $null
 $lastImuSampleSequence = $null
+$firstEspLinkTimestamp = $null
+$lastEspLinkTimestamp = $null
+$firstAttitudeTimestamp = $null
+$lastAttitudeTimestamp = $null
+$firstAttitudeSampleSequence = $null
+$lastAttitudeSampleSequence = $null
 $supplyRawMinimum = [uint16]::MaxValue
 $supplyRawMaximum = 0
 [uint64]$supplyRawSum = 0
@@ -262,6 +333,8 @@ $latestReflectance = $null
 $latestSupplyVoltage = $null
 $latestTfmini = $null
 $latestImu = $null
+$latestEspLink = $null
+$latestAttitude = $null
 
 try {
     while (($offset + $MinimumFrameLength) -le $data.Length) {
@@ -704,11 +777,64 @@ try {
             }
         }
         elseif (($frameType -eq $ImuFrameType) -and
-            ($payloadLength -eq $ImuPayloadLength)) {
+            (($payloadLength -eq $ImuPayloadLength) -or
+             ($payloadLength -eq $LegacyImuPayloadLength))) {
             $imuFrames++
             $imuSampleSequence = [BitConverter]::ToUInt32(
                 $data, $payloadOffset)
+            $imuMeasurementTimestampUs = [BitConverter]::ToUInt32(
+                $data, $payloadOffset + 4)
+            $imuAgeUs = [BitConverter]::ToUInt32(
+                $data, $payloadOffset + 8)
+            $imuUpdateSequence = [BitConverter]::ToUInt32(
+                $data, $payloadOffset + 12)
+            $accelX = [BitConverter]::ToSingle($data, $payloadOffset + 16)
+            $accelY = [BitConverter]::ToSingle($data, $payloadOffset + 20)
+            $accelZ = [BitConverter]::ToSingle($data, $payloadOffset + 24)
+            $accelNorm = [BitConverter]::ToSingle($data, $payloadOffset + 28)
+            $gyroFilteredX = [BitConverter]::ToSingle(
+                $data, $payloadOffset + 32)
+            $gyroFilteredY = [BitConverter]::ToSingle(
+                $data, $payloadOffset + 36)
+            $gyroFilteredZ = [BitConverter]::ToSingle(
+                $data, $payloadOffset + 40)
+            $temperatureC = [BitConverter]::ToSingle(
+                $data, $payloadOffset + 44)
+            $calibrationSamples = [BitConverter]::ToUInt16(
+                $data, $payloadOffset + 48)
+            $calibrationTargetSamples = [BitConverter]::ToUInt16(
+                $data, $payloadOffset + 50)
             $imuFlags = $data[$payloadOffset + 55]
+            $sampleSuccessCount = [BitConverter]::ToUInt32(
+                $data, $payloadOffset + 56)
+            $sampleFailureCount = [BitConverter]::ToUInt32(
+                $data, $payloadOffset + 60)
+            $gyroRawX = $null
+            $gyroRawY = $null
+            $gyroRawZ = $null
+            $gyroBiasX = $null
+            $gyroBiasY = $null
+            $gyroBiasZ = $null
+            $gyroUnfilteredX = $null
+            $gyroUnfilteredY = $null
+            $gyroUnfilteredZ = $null
+            if ($payloadLength -eq $ImuPayloadLength) {
+                $gyroRawX = [BitConverter]::ToSingle(
+                    $data, $payloadOffset + 64)
+                $gyroRawY = [BitConverter]::ToSingle(
+                    $data, $payloadOffset + 68)
+                $gyroRawZ = [BitConverter]::ToSingle(
+                    $data, $payloadOffset + 72)
+                $gyroBiasX = [BitConverter]::ToSingle(
+                    $data, $payloadOffset + 76)
+                $gyroBiasY = [BitConverter]::ToSingle(
+                    $data, $payloadOffset + 80)
+                $gyroBiasZ = [BitConverter]::ToSingle(
+                    $data, $payloadOffset + 84)
+                $gyroUnfilteredX = $gyroRawX - $gyroBiasX
+                $gyroUnfilteredY = $gyroRawY - $gyroBiasY
+                $gyroUnfilteredZ = $gyroRawZ - $gyroBiasZ
+            }
             if ($null -eq $firstImuTimestamp) {
                 $firstImuTimestamp = $timestampUs
                 $firstImuSampleSequence = $imuSampleSequence
@@ -718,36 +844,38 @@ try {
             $imuState = $data[$payloadOffset + 52]
             $latestImu = [pscustomobject]@{
                 SampleSequence = $imuSampleSequence
-                MeasurementTimestampUs = [BitConverter]::ToUInt32(
-                    $data, $payloadOffset + 4)
-                AgeUs = [BitConverter]::ToUInt32(
-                    $data, $payloadOffset + 8)
-                UpdateSequence = [BitConverter]::ToUInt32(
-                    $data, $payloadOffset + 12)
+                MeasurementTimestampUs = $imuMeasurementTimestampUs
+                AgeUs = $imuAgeUs
+                UpdateSequence = $imuUpdateSequence
                 AccelG = @(
-                    [Math]::Round([BitConverter]::ToSingle(
-                        $data, $payloadOffset + 16), 5),
-                    [Math]::Round([BitConverter]::ToSingle(
-                        $data, $payloadOffset + 20), 5),
-                    [Math]::Round([BitConverter]::ToSingle(
-                        $data, $payloadOffset + 24), 5)
+                    [Math]::Round($accelX, 5),
+                    [Math]::Round($accelY, 5),
+                    [Math]::Round($accelZ, 5)
                 )
-                AccelNormG = [Math]::Round([BitConverter]::ToSingle(
-                    $data, $payloadOffset + 28), 5)
+                AccelNormG = [Math]::Round($accelNorm, 5)
                 GyroDps = @(
-                    [Math]::Round([BitConverter]::ToSingle(
-                        $data, $payloadOffset + 32), 5),
-                    [Math]::Round([BitConverter]::ToSingle(
-                        $data, $payloadOffset + 36), 5),
-                    [Math]::Round([BitConverter]::ToSingle(
-                        $data, $payloadOffset + 40), 5)
+                    [Math]::Round($gyroFilteredX, 5),
+                    [Math]::Round($gyroFilteredY, 5),
+                    [Math]::Round($gyroFilteredZ, 5)
                 )
-                TemperatureC = [Math]::Round([BitConverter]::ToSingle(
-                    $data, $payloadOffset + 44), 2)
-                CalibrationSamples = [BitConverter]::ToUInt16(
-                    $data, $payloadOffset + 48)
-                CalibrationTargetSamples = [BitConverter]::ToUInt16(
-                    $data, $payloadOffset + 50)
+                GyroRawDps = if ($null -ne $gyroRawX) { @(
+                    [Math]::Round($gyroRawX, 5),
+                    [Math]::Round($gyroRawY, 5),
+                    [Math]::Round($gyroRawZ, 5)
+                ) } else { $null }
+                GyroUnfilteredDps = if ($null -ne $gyroUnfilteredX) { @(
+                    [Math]::Round($gyroUnfilteredX, 5),
+                    [Math]::Round($gyroUnfilteredY, 5),
+                    [Math]::Round($gyroUnfilteredZ, 5)
+                ) } else { $null }
+                GyroBiasDps = if ($null -ne $gyroBiasX) { @(
+                    [Math]::Round($gyroBiasX, 5),
+                    [Math]::Round($gyroBiasY, 5),
+                    [Math]::Round($gyroBiasZ, 5)
+                ) } else { $null }
+                TemperatureC = [Math]::Round($temperatureC, 2)
+                CalibrationSamples = $calibrationSamples
+                CalibrationTargetSamples = $calibrationTargetSamples
                 State = $imuState
                 StateName = switch ($imuState) {
                     0 { "PROBE" }
@@ -763,10 +891,201 @@ try {
                 Valid = (($imuFlags -band 0x02) -ne 0)
                 Calibrated = (($imuFlags -band 0x04) -ne 0)
                 Ready = (($imuFlags -band 0x08) -ne 0)
-                SampleSuccessCount = [BitConverter]::ToUInt32(
+                SampleSuccessCount = $sampleSuccessCount
+                SampleFailureCount = $sampleFailureCount
+            }
+            if ($null -ne $imuCsvWriter) {
+                $optionalValues = @(
+                    (Format-OptionalFloat $gyroRawX $culture),
+                    (Format-OptionalFloat $gyroRawY $culture),
+                    (Format-OptionalFloat $gyroRawZ $culture),
+                    (Format-OptionalFloat $gyroUnfilteredX $culture),
+                    (Format-OptionalFloat $gyroUnfilteredY $culture),
+                    (Format-OptionalFloat $gyroUnfilteredZ $culture),
+                    (Format-OptionalFloat $gyroBiasX $culture),
+                    (Format-OptionalFloat $gyroBiasY $culture),
+                    (Format-OptionalFloat $gyroBiasZ $culture)
+                )
+                $values = @(
+                    $sequence, $timestampUs, $imuSampleSequence,
+                    $imuMeasurementTimestampUs, $imuAgeUs, $imuUpdateSequence,
+                    $accelX.ToString("R", $culture),
+                    $accelY.ToString("R", $culture),
+                    $accelZ.ToString("R", $culture),
+                    $accelNorm.ToString("R", $culture),
+                    $gyroFilteredX.ToString("R", $culture),
+                    $gyroFilteredY.ToString("R", $culture),
+                    $gyroFilteredZ.ToString("R", $culture)
+                ) + $optionalValues + @(
+                    $temperatureC.ToString("R", $culture),
+                    $calibrationSamples, $calibrationTargetSamples, $imuState,
+                    $data[$payloadOffset + 53], $data[$payloadOffset + 54],
+                    $imuFlags, $sampleSuccessCount, $sampleFailureCount
+                )
+                $imuCsvWriter.WriteLine($values -join ",")
+            }
+        }
+        elseif (($frameType -eq $EspLinkFrameType) -and
+            (($payloadLength -eq $EspLinkPayloadLength) -or
+             ($payloadLength -eq $LegacyEspLinkPayloadLength))) {
+            $espLinkFrames++
+            if ($null -eq $firstEspLinkTimestamp) {
+                $firstEspLinkTimestamp = $timestampUs
+            }
+            $lastEspLinkTimestamp = $timestampUs
+            $latestEspLink = [pscustomobject]@{
+                SchemaVersion = [BitConverter]::ToUInt16(
+                    $data, $payloadOffset)
+                LinkOnline = ($data[$payloadOffset + 2] -ne 0)
+                Outstanding = ($data[$payloadOffset + 3] -ne 0)
+                TxFrames = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 4)
+                AckFrames = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 8)
+                TimeoutCount = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 12)
+                CrcErrorCount = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 16)
+                FormatErrorCount = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 20)
+                UnexpectedSequenceCount = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 24)
+                RxByteCount = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 28)
+                TxByteCount = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 32)
+                RxOverflowCount = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 36)
+                MinimumRttUs = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 40)
+                AverageRttUs = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 44)
+                MaximumRttUs = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 48)
+                LastRttUs = [BitConverter]::ToUInt32(
+                    $data, $payloadOffset + 52)
+                LastSequence = [BitConverter]::ToUInt32(
                     $data, $payloadOffset + 56)
-                SampleFailureCount = [BitConverter]::ToUInt32(
+                BaudRate = [BitConverter]::ToUInt32(
                     $data, $payloadOffset + 60)
+                RxDmaDoneCount = if ($payloadLength -ge $EspLinkPayloadLength) {
+                    [BitConverter]::ToUInt32($data, $payloadOffset + 64)
+                } else { 0 }
+                RxDmaRestartCount = if ($payloadLength -ge $EspLinkPayloadLength) {
+                    [BitConverter]::ToUInt32($data, $payloadOffset + 68)
+                } else { 0 }
+                TxDmaDoneCount = if ($payloadLength -ge $EspLinkPayloadLength) {
+                    [BitConverter]::ToUInt32($data, $payloadOffset + 72)
+                } else { 0 }
+                TxEotCount = if ($payloadLength -ge $EspLinkPayloadLength) {
+                    [BitConverter]::ToUInt32($data, $payloadOffset + 76)
+                } else { 0 }
+                IrqEntryCount = if ($payloadLength -ge $EspLinkPayloadLength) {
+                    [BitConverter]::ToUInt32($data, $payloadOffset + 80)
+                } else { 0 }
+                UnexpectedIrqCount = if ($payloadLength -ge $EspLinkPayloadLength) {
+                    [BitConverter]::ToUInt32($data, $payloadOffset + 84)
+                } else { 0 }
+                RxHighWaterBytes = if ($payloadLength -ge $EspLinkPayloadLength) {
+                    [BitConverter]::ToUInt16($data, $payloadOffset + 88)
+                } else { 0 }
+                TxActiveLength = if ($payloadLength -ge $EspLinkPayloadLength) {
+                    [BitConverter]::ToUInt16($data, $payloadOffset + 90)
+                } else { 0 }
+                TxBusy = (($payloadLength -ge $EspLinkPayloadLength) -and
+                    ($data[$payloadOffset + 92] -ne 0))
+                Initialized = (($payloadLength -ge $EspLinkPayloadLength) -and
+                    ($data[$payloadOffset + 93] -ne 0))
+                RxDmaActive = (($payloadLength -ge $EspLinkPayloadLength) -and
+                    ($data[$payloadOffset + 94] -ne 0))
+                TxLineIdle = (($payloadLength -ge $EspLinkPayloadLength) -and
+                    ($data[$payloadOffset + 95] -ne 0))
+            }
+        }
+        elseif (($frameType -eq $AttitudeFrameType) -and
+            ($payloadLength -eq $AttitudePayloadLength)) {
+            $attitudeFrames++
+            $attitudeImuSampleCount = [BitConverter]::ToUInt32(
+                $data, $payloadOffset + 4)
+            $attitudeMeasurementTimestampUs = [BitConverter]::ToUInt32(
+                $data, $payloadOffset + 8)
+            $attitudeUpdateSequence = [BitConverter]::ToUInt32(
+                $data, $payloadOffset + 12)
+            $rollDeg = [BitConverter]::ToSingle($data, $payloadOffset + 16)
+            $pitchDeg = [BitConverter]::ToSingle($data, $payloadOffset + 20)
+            $yawDeg = [BitConverter]::ToSingle($data, $payloadOffset + 24)
+            $rollRateDps = [BitConverter]::ToSingle(
+                $data, $payloadOffset + 28)
+            $pitchRateDps = [BitConverter]::ToSingle(
+                $data, $payloadOffset + 32)
+            $yawRateDps = [BitConverter]::ToSingle(
+                $data, $payloadOffset + 36)
+            $attitudeAccelNorm = [BitConverter]::ToSingle(
+                $data, $payloadOffset + 40)
+            $attitudeAccelWeight = [BitConverter]::ToSingle(
+                $data, $payloadOffset + 44)
+            $attitudeDt = [BitConverter]::ToSingle(
+                $data, $payloadOffset + 48)
+            $attitudeProcessedCount = [BitConverter]::ToUInt32(
+                $data, $payloadOffset + 52)
+            $attitudeRejectedCount = [BitConverter]::ToUInt32(
+                $data, $payloadOffset + 56)
+            $attitudeTimingResetCount = [BitConverter]::ToUInt32(
+                $data, $payloadOffset + 60)
+            $attitudeFlags = $data[$payloadOffset + 2]
+            $attitudeAgeUs = Get-U32Delta -Current $timestampUs `
+                -Previous $attitudeMeasurementTimestampUs
+            if ($null -eq $firstAttitudeTimestamp) {
+                $firstAttitudeTimestamp = $timestampUs
+                $firstAttitudeSampleSequence = $attitudeImuSampleCount
+            }
+            $lastAttitudeTimestamp = $timestampUs
+            $lastAttitudeSampleSequence = $attitudeImuSampleCount
+            $latestAttitude = [pscustomobject]@{
+                SchemaVersion = [BitConverter]::ToUInt16(
+                    $data, $payloadOffset)
+                ImuSampleCount = $attitudeImuSampleCount
+                MeasurementTimestampUs = $attitudeMeasurementTimestampUs
+                AgeUs = $attitudeAgeUs
+                UpdateSequence = $attitudeUpdateSequence
+                RollDeg = [Math]::Round($rollDeg, 5)
+                PitchDeg = [Math]::Round($pitchDeg, 5)
+                YawDeg = [Math]::Round($yawDeg, 5)
+                AxisRateDps = @(
+                    [Math]::Round($rollRateDps, 5),
+                    [Math]::Round($pitchRateDps, 5),
+                    [Math]::Round($yawRateDps, 5)
+                )
+                AccelNormG = [Math]::Round($attitudeAccelNorm, 5)
+                AccelWeight = [Math]::Round($attitudeAccelWeight, 5)
+                DtS = [Math]::Round($attitudeDt, 6)
+                ProcessedCount = $attitudeProcessedCount
+                RejectedCount = $attitudeRejectedCount
+                TimingResetCount = $attitudeTimingResetCount
+                Flags = $attitudeFlags
+                Initialized = (($attitudeFlags -band 0x01) -ne 0)
+                SourceValid = (($attitudeFlags -band 0x02) -ne 0)
+                AccelUsed = (($attitudeFlags -band 0x04) -ne 0)
+                TimingReset = (($attitudeFlags -band 0x08) -ne 0)
+            }
+            if ($null -ne $attitudeCsvWriter) {
+                $values = @(
+                    $sequence, $timestampUs, $attitudeImuSampleCount,
+                    $attitudeMeasurementTimestampUs, $attitudeAgeUs,
+                    $attitudeUpdateSequence,
+                    $rollDeg.ToString("R", $culture),
+                    $pitchDeg.ToString("R", $culture),
+                    $yawDeg.ToString("R", $culture),
+                    $rollRateDps.ToString("R", $culture),
+                    $pitchRateDps.ToString("R", $culture),
+                    $yawRateDps.ToString("R", $culture),
+                    $attitudeAccelNorm.ToString("R", $culture),
+                    $attitudeAccelWeight.ToString("R", $culture),
+                    $attitudeDt.ToString("R", $culture),
+                    $attitudeProcessedCount, $attitudeRejectedCount,
+                    $attitudeTimingResetCount, $attitudeFlags
+                )
+                $attitudeCsvWriter.WriteLine($values -join ",")
             }
         }
         else {
@@ -779,6 +1098,12 @@ try {
 finally {
     if ($null -ne $csvWriter) {
         $csvWriter.Dispose()
+    }
+    if ($null -ne $imuCsvWriter) {
+        $imuCsvWriter.Dispose()
+    }
+    if ($null -ne $attitudeCsvWriter) {
+        $attitudeCsvWriter.Dispose()
     }
 }
 
@@ -873,6 +1198,22 @@ $summary = [pscustomobject]@{
             (Get-U32Delta -Current $lastImuTimestamp `
                 -Previous $firstImuTimestamp), 3)
     } else { 0.0 }
+    EspLinkFrames = $espLinkFrames
+    EspLinkRateHz = Get-RateHz -Count $espLinkFrames `
+        -FirstTimestamp $firstEspLinkTimestamp `
+        -LastTimestamp $lastEspLinkTimestamp
+    AttitudeFrames = $attitudeFrames
+    AttitudeTelemetryRateHz = Get-RateHz -Count $attitudeFrames `
+        -FirstTimestamp $firstAttitudeTimestamp `
+        -LastTimestamp $lastAttitudeTimestamp
+    AttitudeSampleRateHz = if (($attitudeFrames -gt 1) -and
+        ($lastAttitudeTimestamp -ne $firstAttitudeTimestamp)) {
+        [Math]::Round(
+            (Get-U32Delta -Current $lastAttitudeSampleSequence `
+                -Previous $firstAttitudeSampleSequence) * 1000000.0 /
+            (Get-U32Delta -Current $lastAttitudeTimestamp `
+                -Previous $firstAttitudeTimestamp), 3)
+    } else { 0.0 }
     UnknownFrames = $unknownFrames
     CrcErrors = $crcErrors
     SequenceGaps = $sequenceGaps
@@ -896,7 +1237,11 @@ $summary = [pscustomobject]@{
     LatestSupplyVoltage = $latestSupplyVoltage
     LatestTfmini = $latestTfmini
     LatestImu = $latestImu
+    LatestEspLink = $latestEspLink
+    LatestAttitude = $latestAttitude
     CsvPath = $CsvPath
+    ImuCsvPath = $ImuCsvPath
+    AttitudeCsvPath = $AttitudeCsvPath
     JsonPath = $JsonPath
 }
 
@@ -912,18 +1257,32 @@ if (-not [string]::IsNullOrWhiteSpace($JsonPath)) {
 
 $summary | Format-List
 
-$minimumControlFrames = [int]($DurationSeconds * 90)
+$diagnosticCapture = (-not [string]::IsNullOrWhiteSpace($ImuCsvPath)) -or
+    (-not [string]::IsNullOrWhiteSpace($AttitudeCsvPath))
+$minimumControlFrames = if (-not $diagnosticCapture) {
+    [int]($DurationSeconds * 90)
+} else { 0 }
 $minimumHealthFrames = if ($DurationSeconds -ge 3) {
     [int][Math]::Floor($DurationSeconds * 0.7)
 }
 else {
     0
 }
-$minimumImuFrames = [int]($DurationSeconds * 20)
+$minimumImuFrames = if ([string]::IsNullOrWhiteSpace($ImuCsvPath)) {
+    [int]($DurationSeconds * 20)
+} else {
+    [int]($DurationSeconds * 80)
+}
+$minimumAttitudeFrames = if ([string]::IsNullOrWhiteSpace($AttitudeCsvPath)) {
+    0
+} else {
+    [int]($DurationSeconds * 20)
+}
 $rateGateFailed = ($PSCmdlet.ParameterSetName -eq "Serial") -and
     (($controlFrames -lt $minimumControlFrames) -or
      ($healthFrames -lt $minimumHealthFrames) -or
-     ($imuFrames -lt $minimumImuFrames))
+     ($imuFrames -lt $minimumImuFrames) -or
+     ($attitudeFrames -lt $minimumAttitudeFrames))
 if (($crcErrors -ne 0) -or
     ($sequenceGaps -ne 0) -or
     ($sequenceDuplicates -ne 0) -or
