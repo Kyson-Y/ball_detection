@@ -491,3 +491,25 @@ quiet-window 门禁。这些维护不代表 Phase 2A 功能已经实现。
   `F8333A274EB99B51C327469AA3171327D03E905E81AFB35CD94361B3129AA3EF`.
 - Next step is the 100 Hz attitude/angle estimator and static/dynamic angle
   validation before closing the chassis angle loop.
+
+## 21. 2026-07-28 OLED TUNE and hardware self-check
+
+- TUNE now renders signed values and PWM percentages with the SSD1306 `+` and
+  `%` glyphs. PWM remains display-only final actuator output after all control
+  processing and safety gating.
+- HEALTH has a long-OK `>SCAN` entry for a 1.5-second read-only ZDT discovery.
+  `IR:OK MASK:255` is based on the last completed eight-channel scan, not a
+  transient partial scan. ZDT1 is `NA` by design because UART2 is the formal
+  ESP32 link; ZDT2 is on UART3 PB2/PB3.
+- Final formal firmware build: 0 errors / 0 warnings. DAPLink program,
+  byte-for-byte readback, and reset passed. Flash readback SHA-256:
+  `4B2677D726BD7A964EFE0945A7840065D337CEF45B05FEF75EC3A0E21D9548D4`.
+- Final device acceptance: control/IMU/attitude 100 Hz, reflectance 125 Hz,
+  no CRC/gap/deadline/drop/I2C errors, active/sticky health masks zero,
+  actuator output disabled, and display stack free 277 words.
+- A scan can show `FAIL` while the ESP32 is physically absent because the
+  formal configuration requires the ESP link. The current observed ESP state
+  was `LinkOnline=false`, RX bytes 0, with the infrared and ZDT2 paths healthy.
+- Final ZDT exit verification returned `BackendSelected=false` and
+  `ShutdownPending=false`; the unavailable UART2/ZDT1 port is ignored by the
+  TX-idle completion gate.

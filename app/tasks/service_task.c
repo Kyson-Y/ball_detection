@@ -186,8 +186,12 @@ void ServiceTask_Entry(void *context)
         }
 #else
 #if ECHO_ENABLE_IMU
+        if (ImuService_ApplyPendingRecalibration(now)) {
+            AttitudeEstimator_Init();
+        }
         if (ImuService_NeedsBusAccess(now)) {
-            if (SerialTx_TryBeginPriorityQuietWindow()) {
+            SerialTx_RequestPriorityQuietWindow();
+            if (SerialTx_TryBeginRequestedQuietWindow()) {
                 ImuService_Process(now);
                 SerialTx_EndQuietWindow();
             }
@@ -198,7 +202,8 @@ void ServiceTask_Entry(void *context)
 
         if ((TickType_t) (now - last_tfmini_i2c_time) >=
             SERVICE_TFMINI_I2C_PERIOD) {
-            if (SerialTx_TryBeginPriorityQuietWindow()) {
+            SerialTx_RequestPriorityQuietWindow();
+            if (SerialTx_TryBeginRequestedQuietWindow()) {
                 uint8_t query[TFMINI_S_I2C_QUERY_BYTES];
                 uint8_t frame[TFMINI_S_DATA_FRAME_BYTES];
                 uint8_t query_length =
@@ -231,8 +236,12 @@ void ServiceTask_Entry(void *context)
 #endif
 #else
 #if ECHO_ENABLE_IMU
+        if (ImuService_ApplyPendingRecalibration(now)) {
+            AttitudeEstimator_Init();
+        }
         if (ImuService_NeedsBusAccess(now)) {
-            if (SerialTx_TryBeginPriorityQuietWindow()) {
+            SerialTx_RequestPriorityQuietWindow();
+            if (SerialTx_TryBeginRequestedQuietWindow()) {
                 ImuService_Process(now);
                 SerialTx_EndQuietWindow();
             }

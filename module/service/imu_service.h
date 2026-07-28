@@ -53,6 +53,7 @@ typedef struct {
     uint32_t reinitialize_count;
     uint32_t calibration_restart_count;
     uint32_t calibration_complete_count;
+    uint32_t manual_calibration_request_count;
     uint32_t bias_tracking_update_count;
     uint32_t bias_tracking_reset_count;
     uint32_t last_sample_tick;
@@ -69,6 +70,8 @@ extern volatile uint32_t g_imu_service_debug_forced_sample_failures;
 
 void ImuService_Init(void);
 void ImuService_Process(TickType_t now);
+bool ImuService_RequestRecalibration(void);
+bool ImuService_ApplyPendingRecalibration(TickType_t now);
 bool ImuService_NeedsBusAccess(TickType_t now);
 bool ImuService_GetSnapshot(imu_service_snapshot_t *snapshot);
 bool ImuService_IsReady(void);

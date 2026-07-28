@@ -13,6 +13,7 @@ volatile bsp_reflectance_diagnostics_t g_bsp_reflectance_diag;
 
 static uint8_t s_selected_channel;
 static uint8_t s_valid_channel_mask;
+static uint8_t s_last_complete_channel_mask;
 
 static void BSP_Reflectance_SelectChannel(uint8_t channel)
 {
@@ -76,6 +77,7 @@ void BSP_Reflectance_Init(void)
         sizeof(g_bsp_reflectance_diag));
     s_selected_channel = 0U;
     s_valid_channel_mask = 0U;
+    s_last_complete_channel_mask = 0U;
     BSP_Reflectance_SelectChannel(s_selected_channel);
     g_bsp_reflectance_diag.selected_channel = s_selected_channel;
     g_bsp_reflectance_diag.initialized = 1U;
@@ -139,6 +141,7 @@ bool BSP_Reflectance_Service(bsp_reflectance_sample_t *sample)
         } else {
             g_bsp_reflectance_diag.incomplete_scan_count++;
         }
+        s_last_complete_channel_mask = s_valid_channel_mask;
         s_valid_channel_mask = 0U;
     }
 
@@ -146,6 +149,9 @@ bool BSP_Reflectance_Service(bsp_reflectance_sample_t *sample)
     BSP_Reflectance_SelectChannel(next_channel);
     s_selected_channel = next_channel;
     g_bsp_reflectance_diag.selected_channel = next_channel;
-    g_bsp_reflectance_diag.valid_channel_mask = s_valid_channel_mask;
+    /* Expose the result of the last finished scan, not the next scan's
+     * transient progress. This lets diagnostics report a stable OK/FAIL. */
+    g_bsp_reflectance_diag.valid_channel_mask =
+        s_last_complete_channel_mask;
     return complete;
 }

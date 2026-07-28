@@ -35,6 +35,7 @@ static void SerialTx_StartNextBlock(void)
     uint16_t length;
 
     if ((s_diagnostics.quiet_window_active != 0U) ||
+        (s_diagnostics.priority_quiet_request_active != 0U) ||
         (s_diagnostics.dma_active != 0U) || (s_head == s_tail)) {
         return;
     }
@@ -105,17 +106,20 @@ void SerialTx_Init(void)
     s_diagnostics.quiet_window_release_count = 0U;
     s_diagnostics.quiet_window_start_us = 0U;
     s_diagnostics.max_quiet_window_us = 0U;
+    s_diagnostics.priority_quiet_request_count = 0U;
     s_diagnostics.ring_used_bytes = 0U;
     s_diagnostics.active_dma_length = 0U;
     s_diagnostics.dma_active = 0U;
     s_diagnostics.quiet_window_active = 0U;
+    s_diagnostics.priority_quiet_request_active = 0U;
     s_diagnostics.initialized = 1U;
     s_diagnostics.reserved = 0U;
 
     BSP_UartTxDma_Init(SerialTx_OnDmaComplete);
 }
 
-static bool SerialTx_TryBeginQuietWindowInternal(bool require_empty)
+static bool SerialTx_TryBeginQuietWindowInternal(
+    bool require_empty, bool claim_priority_request)
 {
     bool acquired = false;
 
@@ -124,9 +128,14 @@ static bool SerialTx_TryBeginQuietWindowInternal(bool require_empty)
     if ((s_diagnostics.initialized != 0U) &&
         (s_diagnostics.quiet_window_active == 0U) &&
         (s_diagnostics.dma_active == 0U) &&
+        ((s_diagnostics.priority_quiet_request_active == 0U) ||
+            claim_priority_request) &&
         ((!require_empty) || (s_head == s_tail)) &&
         BSP_UartTxDma_IsLineIdle()) {
         s_diagnostics.quiet_window_active = 1U;
+        if (claim_priority_request) {
+            s_diagnostics.priority_quiet_request_active = 0U;
+        }
         s_diagnostics.quiet_window_acquired_count++;
         s_diagnostics.quiet_window_start_us = BSP_Time_GetUs();
         acquired = true;
@@ -139,12 +148,27 @@ static bool SerialTx_TryBeginQuietWindowInternal(bool require_empty)
 
 bool SerialTx_TryBeginQuietWindow(void)
 {
-    return SerialTx_TryBeginQuietWindowInternal(true);
+    return SerialTx_TryBeginQuietWindowInternal(true, false);
 }
 
 bool SerialTx_TryBeginPriorityQuietWindow(void)
 {
-    return SerialTx_TryBeginQuietWindowInternal(false);
+    return SerialTx_TryBeginQuietWindowInternal(false, false);
+}
+
+void SerialTx_RequestPriorityQuietWindow(void)
+{
+    taskENTER_CRITICAL();
+    if (s_diagnostics.priority_quiet_request_active == 0U) {
+        s_diagnostics.priority_quiet_request_count++;
+        s_diagnostics.priority_quiet_request_active = 1U;
+    }
+    taskEXIT_CRITICAL();
+}
+
+bool SerialTx_TryBeginRequestedQuietWindow(void)
+{
+    return SerialTx_TryBeginQuietWindowInternal(false, true);
 }
 
 void SerialTx_EndQuietWindow(void)

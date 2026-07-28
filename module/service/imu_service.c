@@ -40,6 +40,7 @@ static float s_gyro_bias_counts[3];
 static float s_filtered_dps[3];
 static float s_calibration_temperature_c;
 static bool s_filter_initialized;
+static volatile bool s_manual_calibration_requested;
 static uint16_t s_bias_stationary_samples;
 static const float s_accel_bias_g[3] = {
     ECHO_IMU_ACCEL_BIAS_X_G,
@@ -351,6 +352,7 @@ void ImuService_Init(void)
     memset(s_gyro_bias_counts, 0, sizeof(s_gyro_bias_counts));
     memset(s_filtered_dps, 0, sizeof(s_filtered_dps));
     s_calibration_temperature_c = 0.0f;
+    s_manual_calibration_requested = false;
 #if IMU_SERVICE_DEBUG_AUTO_INJECT_FAILURES > 0U
     s_debug_ready_tick = 0U;
     s_debug_auto_injected = false;
@@ -373,6 +375,43 @@ void ImuService_Init(void)
     s_next_sample_tick = 0U;
     s_address = 0U;
     s_who_am_i = 0U;
+}
+
+bool ImuService_RequestRecalibration(void)
+{
+    bool accepted = false;
+
+    taskENTER_CRITICAL();
+    if (g_imu_service_diag.initialized != 0U &&
+        g_imu_service_diag.ready != 0U &&
+        !s_manual_calibration_requested) {
+        s_manual_calibration_requested = true;
+        accepted = true;
+    }
+    taskEXIT_CRITICAL();
+    return accepted;
+}
+
+bool ImuService_ApplyPendingRecalibration(TickType_t now)
+{
+    bool requested;
+
+    taskENTER_CRITICAL();
+    requested = s_manual_calibration_requested;
+    s_manual_calibration_requested = false;
+    taskEXIT_CRITICAL();
+    if (!requested) {
+        return false;
+    }
+
+    ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_NONE);
+    ImuService_ResetCalibration();
+    g_imu_service_diag.manual_calibration_request_count++;
+    ImuService_SetState(IMU_SERVICE_STATE_SETTLING);
+    ImuService_PublishUnavailableSnapshot(IMU_SERVICE_STATE_SETTLING);
+    s_next_action_tick = now + IMU_SERVICE_SETTLE_TIME;
+    s_next_sample_tick = s_next_action_tick + IMU_SERVICE_SAMPLE_PHASE_DELAY;
+    return true;
 }
 
 void ImuService_Process(TickType_t now)

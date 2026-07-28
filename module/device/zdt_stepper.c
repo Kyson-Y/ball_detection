@@ -64,7 +64,11 @@ const zdt_stepper_config_t
     };
 
 static zdt_stepper_state_t s_state[ZDT_STEPPER_AXIS_COUNT];
+static bool s_diagnostic_scan_active;
+static volatile uint8_t s_diagnostic_scan_request;
 volatile zdt_stepper_diagnostics_t g_zdt_stepper_diag;
+
+static void ZdtStepper_ResetDiscoveryState(void);
 
 static bool ZdtStepper_AxisIsValid(zdt_stepper_axis_t axis)
 {
@@ -570,7 +574,8 @@ static void ZdtStepper_ServiceAxis(zdt_stepper_axis_t axis,
 
     if (g_zdt_stepper_diag.shutdown_pending != 0U) {
         ZdtStepper_ServiceShutdown(axis);
-    } else if (g_zdt_stepper_diag.backend_selected == 0U) {
+    } else if (g_zdt_stepper_diag.backend_selected == 0U &&
+               !s_diagnostic_scan_active) {
         return;
     } else {
         ZdtStepper_ServiceSpeedLease(axis, now_us);
@@ -617,6 +622,8 @@ void ZdtStepper_Init(void)
     uint32_t axis;
 
     memset(s_state, 0, sizeof(s_state));
+    s_diagnostic_scan_active = false;
+    s_diagnostic_scan_request = 0U;
     memset((void *) &g_zdt_stepper_diag, 0,
         sizeof(g_zdt_stepper_diag));
     BSP_ZdtUart_Init();
@@ -638,7 +645,8 @@ void ZdtStepper_Service(uint32_t now_us)
         if ((s_state[axis].shutdown_state !=
                 (uint8_t) ZDT_SHUTDOWN_COMPLETE) ||
             (s_state[axis].pending_valid != 0U) ||
-            !BSP_ZdtUart_IsTxIdle((bsp_zdt_uart_port_t) axis)) {
+            (BSP_ZdtUart_IsAvailable((bsp_zdt_uart_port_t) axis) &&
+             !BSP_ZdtUart_IsTxIdle((bsp_zdt_uart_port_t) axis))) {
             shutdown_complete = false;
         }
     }
@@ -650,13 +658,17 @@ void ZdtStepper_Service(uint32_t now_us)
     }
 }
 
-bool ZdtStepper_SelectBackupBackend(void)
+static void ZdtStepper_ResetDiscoveryState(void)
 {
     uint32_t axis;
 
-    if ((g_zdt_stepper_diag.initialized == 0U) ||
-        (g_zdt_stepper_diag.shutdown_pending != 0U)) {
-        return false;
+    if (s_diagnostic_scan_request == 1U) {
+        ZdtStepper_ResetDiscoveryState();
+        s_diagnostic_scan_active = true;
+        s_diagnostic_scan_request = 0U;
+    } else if (s_diagnostic_scan_request == 2U) {
+        s_diagnostic_scan_active = false;
+        s_diagnostic_scan_request = 0U;
     }
 
     for (axis = 0U; axis < ZDT_STEPPER_AXIS_COUNT; axis++) {
@@ -669,6 +681,36 @@ bool ZdtStepper_SelectBackupBackend(void)
         s_state[axis].next_poll_us = 0U;
         BSP_ZdtUart_FlushRx((bsp_zdt_uart_port_t) axis);
     }
+}
+
+bool ZdtStepper_StartDiagnosticScan(void)
+{
+    if ((g_zdt_stepper_diag.initialized == 0U) ||
+        (g_zdt_stepper_diag.backend_selected != 0U) ||
+        (g_zdt_stepper_diag.shutdown_pending != 0U)) {
+        return false;
+    }
+    s_diagnostic_scan_request = 1U;
+    return true;
+}
+
+void ZdtStepper_StopDiagnosticScan(void)
+{
+    s_diagnostic_scan_request = 2U;
+}
+
+bool ZdtStepper_SelectBackupBackend(void)
+{
+    uint32_t axis;
+
+    if ((g_zdt_stepper_diag.initialized == 0U) ||
+        (g_zdt_stepper_diag.shutdown_pending != 0U)) {
+        return false;
+    }
+
+    ZdtStepper_ResetDiscoveryState();
+    s_diagnostic_scan_active = false;
+    s_diagnostic_scan_request = 0U;
     g_zdt_stepper_diag.backend_selected = 1U;
     g_zdt_stepper_diag.select_count++;
     return true;
@@ -688,9 +730,14 @@ void ZdtStepper_DeselectBackupBackend(void)
         s_state[axis].expected_query = 0U;
         s_state[axis].speed_lease_active = 0U;
         s_state[axis].allow_position_interrupt = 0U;
-        s_state[axis].shutdown_state =
-            (uint8_t) ZDT_SHUTDOWN_STOP_PENDING;
         g_zdt_stepper_diag.axis[axis].pending_command = 0U;
+        if (!BSP_ZdtUart_IsAvailable((bsp_zdt_uart_port_t) axis)) {
+            s_state[axis].shutdown_state =
+                (uint8_t) ZDT_SHUTDOWN_COMPLETE;
+        } else {
+            s_state[axis].shutdown_state =
+                (uint8_t) ZDT_SHUTDOWN_STOP_PENDING;
+        }
     }
     g_zdt_stepper_diag.shutdown_pending = 1U;
     g_zdt_stepper_diag.deselect_count++;

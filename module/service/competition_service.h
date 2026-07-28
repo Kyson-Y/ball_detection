@@ -8,7 +8,7 @@
 #include "ui_input.h"
 
 #define COMPETITION_TASK_SLOT_COUNT 5U
-#define COMPETITION_PAGE_COUNT      6U
+#define COMPETITION_PAGE_COUNT      7U
 
 typedef enum {
     COMPETITION_STATE_READY = 0U,
@@ -24,6 +24,7 @@ typedef enum {
     COMPETITION_PAGE_TASK = 0U,
     COMPETITION_PAGE_RUN,
     COMPETITION_PAGE_TEST,
+    COMPETITION_PAGE_TUNE,
     COMPETITION_PAGE_SETTINGS,
     COMPETITION_PAGE_HEALTH,
     COMPETITION_PAGE_SYSTEM
@@ -38,6 +39,13 @@ typedef enum {
     COMPETITION_RESULT_MOTION_FAULT,
     COMPETITION_RESULT_STORAGE_FAULT
 } competition_result_t;
+
+typedef enum {
+    COMPETITION_HEALTH_CHECK_IDLE = 0U,
+    COMPETITION_HEALTH_CHECK_RUNNING,
+    COMPETITION_HEALTH_CHECK_COMPLETE,
+    COMPETITION_HEALTH_CHECK_FAILED
+} competition_health_check_state_t;
 
 typedef enum {
     COMPETITION_MISSION_RUNNING = 0U,
@@ -63,6 +71,7 @@ typedef struct {
     uint32_t emergency_stop_count;
     uint32_t request_sequence;
     uint32_t countdown_remaining_ms;
+    uint32_t health_check_count;
     float advanced_draft_value;
     uint8_t state;
     uint8_t page;
@@ -73,7 +82,8 @@ typedef struct {
     uint8_t result;
     uint8_t save_pending;
     uint8_t motion_applied;
-    uint8_t reserved[3];
+    uint8_t health_check_state;
+    uint8_t reserved[2];
 } competition_service_snapshot_t;
 
 extern volatile competition_service_snapshot_t g_competition_service;

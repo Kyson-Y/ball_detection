@@ -9,6 +9,7 @@
 #include "bsp_reflectance.h"
 #include "bsp_supply_voltage.h"
 #include "bsp_time.h"
+#include "bsp_zdt_uart.h"
 #include "attitude_estimator.h"
 #include "competition_page.h"
 #include "competition_service.h"
@@ -41,6 +42,25 @@ volatile uint32_t g_display_debug_refresh_enable = 1U;
 volatile uint32_t g_display_debug_force_offline;
 
 static uint8_t s_consecutive_deferred_count;
+static attitude_estimator_snapshot_t s_display_attitude_snapshot;
+static chassis_actuator_diagnostics_t s_display_chassis_snapshot;
+static competition_page_data_t s_display_page_data;
+static imu_service_snapshot_t s_display_imu_snapshot;
+static float s_display_roll_zero_deg;
+static float s_display_pitch_zero_deg;
+static float s_display_yaw_zero_deg;
+static uint8_t s_attitude_display_zero_valid;
+
+static float DisplayTask_WrapDegrees(float value)
+{
+    while (value > 180.0f) {
+        value -= 360.0f;
+    }
+    while (value < -180.0f) {
+        value += 360.0f;
+    }
+    return value;
+}
 
 static TickType_t DisplayTask_ActivePeriod(void)
 {
@@ -82,48 +102,134 @@ static TickType_t DisplayTask_GetDeferredDelay(void)
 
 static void DisplayTask_Render(void)
 {
-    competition_page_data_t data;
-    competition_service_snapshot_t competition;
-    esp_uart_link_test_snapshot_t esp_link;
-    system_health_snapshot_t health;
+    attitude_estimator_snapshot_t *attitude =
+        &s_display_attitude_snapshot;
+    chassis_actuator_diagnostics_t *chassis =
+        &s_display_chassis_snapshot;
+    competition_page_data_t *data = &s_display_page_data;
+    imu_service_snapshot_t *imu = &s_display_imu_snapshot;
     const parameter_metadata_t *metadata;
+    bool attitude_valid;
 
-    memset(&data, 0, sizeof(data));
-    CompetitionService_GetSnapshot(&competition);
-    data.competition = competition;
-    if (!SystemHealth_GetSnapshot(&health)) {
-        memset(&health, 0, sizeof(health));
-        health.level = SYSTEM_HEALTH_UNKNOWN;
+    memset(data, 0, sizeof(*data));
+    CompetitionService_GetSnapshot(&data->competition);
+    if (!SystemHealth_GetSnapshot(&data->health)) {
+        memset(&data->health, 0, sizeof(data->health));
+        data->health.level = SYSTEM_HEALTH_UNKNOWN;
     }
-    data.health = health;
-    data.battery_mv = g_bsp_supply_voltage_diag.battery_mv;
-    data.supply_valid =
+    data->battery_mv = g_bsp_supply_voltage_diag.battery_mv;
+    data->supply_valid =
         (g_bsp_supply_voltage_diag.last_conversion_ok != 0U) &&
-        data.battery_mv >= 8000U && data.battery_mv <= 18000U;
-    data.uptime_s = health.uptime_ticks / configTICK_RATE_HZ;
-    data.yaw_deg = g_attitude_estimator_snapshot.yaw_deg;
-    data.temperature_c = g_imu_service_snapshot.temperature_c;
-    data.left_rpm = g_motor_profile_diag.left_output_rpm;
-    data.right_rpm = g_motor_profile_diag.right_output_rpm;
-    data.distance_progress_mm = g_chassis_actuator_diag.distance_progress_mm;
-    data.imu_ready = g_imu_service_diag.ready;
-    data.encoders_ready =
+        data->battery_mv >= 8000U && data->battery_mv <= 18000U;
+    data->uptime_s = data->health.uptime_ticks / configTICK_RATE_HZ;
+    attitude_valid = AttitudeEstimator_GetSnapshot(attitude);
+    if (ImuService_GetSnapshot(imu)) {
+        data->temperature_c = imu->temperature_c;
+        data->imu_ready = imu->calibrated;
+        data->imu_state = imu->state;
+        data->imu_calibration_samples = imu->calibration_samples;
+        data->imu_calibration_target_samples =
+            imu->calibration_target_samples;
+    }
+    if ((data->imu_ready != 0U) && attitude_valid) {
+        if (s_attitude_display_zero_valid == 0U) {
+            s_display_roll_zero_deg = attitude->roll_deg;
+            s_display_pitch_zero_deg = attitude->pitch_deg;
+            s_display_yaw_zero_deg = attitude->yaw_deg;
+            s_attitude_display_zero_valid = 1U;
+        }
+        data->roll_deg = DisplayTask_WrapDegrees(
+            attitude->roll_deg - s_display_roll_zero_deg);
+        data->pitch_deg = DisplayTask_WrapDegrees(
+            attitude->pitch_deg - s_display_pitch_zero_deg);
+        data->yaw_deg = DisplayTask_WrapDegrees(
+            attitude->yaw_deg - s_display_yaw_zero_deg);
+    } else if (data->imu_ready == 0U) {
+        s_attitude_display_zero_valid = 0U;
+    }
+    data->left_rpm = g_motor_profile_diag.left_output_rpm;
+    data->right_rpm = g_motor_profile_diag.right_output_rpm;
+    data->distance_progress_mm =
+        g_chassis_actuator_diag.distance_progress_mm;
+    taskENTER_CRITICAL();
+    *chassis = g_chassis_actuator_diag;
+    taskEXIT_CRITICAL();
+    data->tune_left_target_rpm =
+        (float) chassis->left_target_deci_rpm * 0.1f;
+    data->tune_right_target_rpm =
+        (float) chassis->right_target_deci_rpm * 0.1f;
+    data->tune_left_measured_rpm = chassis->left_measured_rpm;
+    data->tune_right_measured_rpm = chassis->right_measured_rpm;
+    data->tune_left_error_rpm = data->tune_left_target_rpm -
+        data->tune_left_measured_rpm;
+    data->tune_right_error_rpm = data->tune_right_target_rpm -
+        data->tune_right_measured_rpm;
+    data->tune_heading_error_deg = chassis->heading_error_deg;
+    data->tune_heading_correction_rpm = chassis->heading_correction_rpm;
+    data->tune_output_permitted = chassis->output_permitted;
+    data->tune_boost_active = chassis->output_permitted != 0U &&
+        chassis->speed_phase == (uint8_t) CHASSIS_SPEED_PHASE_BOOST;
+    if (chassis->output_permitted != 0U) {
+        const motor_profile_t *profile = MotorProfile_GetActive();
+        int16_t left_pwm_permille = chassis->compensated_left_permille;
+        int16_t right_pwm_permille = chassis->compensated_right_permille;
+
+        if (chassis->control_mode ==
+                (uint8_t) CHASSIS_ACTUATOR_MODE_ELECTRICAL &&
+            profile != NULL) {
+            left_pwm_permille = (int16_t) (
+                chassis->applied_left_permille *
+                profile->wheel[MOTOR_WHEEL_LEFT].motor_output_sign);
+            right_pwm_permille = (int16_t) (
+                chassis->applied_right_permille *
+                profile->wheel[MOTOR_WHEEL_RIGHT].motor_output_sign);
+        }
+        data->tune_left_pwm_percent = (float) left_pwm_permille * 0.1f;
+        data->tune_right_pwm_percent = (float) right_pwm_permille * 0.1f;
+        if ((profile != NULL) && (profile->maximum_pwm_permille != 0U) &&
+            ((uint16_t) ((left_pwm_permille < 0) ? -left_pwm_permille :
+                left_pwm_permille) >= profile->maximum_pwm_permille ||
+             (uint16_t) ((right_pwm_permille < 0) ? -right_pwm_permille :
+                right_pwm_permille) >= profile->maximum_pwm_permille)) {
+            data->tune_pwm_saturated = 1U;
+        }
+    }
+    data->encoders_ready =
         g_bsp_encoder_diag.left.initialized != 0U &&
         g_bsp_encoder_diag.right.initialized != 0U;
-    data.reflectance_mask = g_bsp_reflectance_diag.valid_channel_mask;
-    data.esp_ready = g_bsp_esp_uart_diag.initialized != 0U &&
+    data->reflectance_mask = g_bsp_reflectance_diag.valid_channel_mask;
+    data->esp_ready = g_bsp_esp_uart_diag.initialized != 0U &&
         g_esp_uart_link_test.link_online != 0U;
-    data.esp_rtt_us = g_esp_uart_link_test.average_rtt_us;
-    data.lidar_online = 0U;
-    data.zdt_gen1_online = g_zdt_stepper_diag.axis[ZDT_STEPPER_AXIS_GEN1].online;
-    data.zdt_gen2_online = g_zdt_stepper_diag.axis[ZDT_STEPPER_AXIS_GEN2].online;
+    data->esp_rtt_us = g_esp_uart_link_test.average_rtt_us;
+    data->lidar_online = 0U;
+    data->zdt_gen1_online =
+        g_zdt_stepper_diag.axis[ZDT_STEPPER_AXIS_GEN1].online;
+    data->zdt_gen2_online =
+        g_zdt_stepper_diag.axis[ZDT_STEPPER_AXIS_GEN2].online;
+    data->zdt_gen1_available =
+        BSP_ZdtUart_IsAvailable(BSP_ZDT_UART_GEN1);
+    data->zdt_gen2_available =
+        BSP_ZdtUart_IsAvailable(BSP_ZDT_UART_GEN2);
+    data->health_check_pass = data->supply_valid != 0U &&
+        (ECHO_ENABLE_IMU == 0U || data->imu_ready != 0U) &&
+        data->encoders_ready != 0U &&
+        (ECHO_ENABLE_OLED == 0U || data->health.oled_online != 0U) &&
+        data->health.i2c_error_count == 0U &&
+        (ECHO_ENABLE_REFLECTANCE == 0U ||
+            data->reflectance_mask == 0xFFU) &&
+        (ECHO_ENABLE_ESP_LINK == 0U || data->esp_ready != 0U) &&
+        (data->zdt_gen1_available == 0U ||
+            data->zdt_gen1_online != 0U) &&
+        (data->zdt_gen2_available == 0U ||
+            data->zdt_gen2_online != 0U);
     metadata = ParameterService_GetMetadataByIndex(
-        competition.advanced_parameter_index);
-    data.advanced_metadata = metadata;
+        data->competition.advanced_parameter_index);
+    data->advanced_metadata = metadata;
     if (metadata != NULL) {
-        (void) ParameterService_GetValue(metadata->id, &data.advanced_value);
+        (void) ParameterService_GetValue(metadata->id,
+            &data->advanced_value);
     }
-    CompetitionPage_Render(&data);
+    CompetitionPage_Render(data);
 }
 
 void DisplayTask_Init(void)
@@ -132,6 +238,7 @@ void DisplayTask_Init(void)
         sizeof(g_display_task_diag));
     g_display_debug_refresh_enable = 1U;
     g_display_debug_force_offline = ECHO_ENABLE_OLED ? 0U : 1U;
+    s_attitude_display_zero_valid = 0U;
     g_display_task_diag.last_i2c_result =
         (uint32_t) BSP_I2C_RESULT_NOT_INITIALIZED;
     BSP_I2C_Init();

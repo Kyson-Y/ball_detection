@@ -6,7 +6,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-#define DISPLAY_TASK_STACK_WORDS ((configSTACK_DEPTH_TYPE) 256U)
+#define DISPLAY_TASK_STACK_WORDS ((configSTACK_DEPTH_TYPE) 384U)
 
 typedef struct {
     uint32_t run_count;

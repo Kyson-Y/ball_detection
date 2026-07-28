@@ -5,8 +5,10 @@
 
 #include "FreeRTOS.h"
 #include "chassis_actuator.h"
+#include "imu_service.h"
 #include "parameter_service.h"
 #include "task.h"
+#include "zdt_stepper.h"
 
 #define COMPETITION_SAVE_DELAY_MS       750U
 #define COMPETITION_DISTANCE_MAX_MM    5000
@@ -18,6 +20,7 @@
 #define COMPETITION_TURN_MAX_DECI_RPM   350U
 #define COMPETITION_SETTINGS_FIELD_COUNT 6U
 #define COMPETITION_TEST_FIELD_COUNT     5U
+#define COMPETITION_HEALTH_CHECK_MS    1500U
 
 volatile competition_service_snapshot_t g_competition_service;
 
@@ -27,6 +30,7 @@ static uint32_t s_settings_changed_ms;
 static uint32_t s_parameter_transaction_id;
 static bool s_launch_test;
 static bool s_wait_start_release;
+static uint32_t s_health_check_start_ms;
 
 static int32_t CompetitionService_Abs(int32_t value)
 {
@@ -384,6 +388,15 @@ void CompetitionService_Init(void)
 
 void CompetitionService_Service(uint32_t now_ms)
 {
+    if (g_competition_service.health_check_state ==
+            (uint8_t) COMPETITION_HEALTH_CHECK_RUNNING &&
+        (uint32_t) (now_ms - s_health_check_start_ms) >=
+            COMPETITION_HEALTH_CHECK_MS) {
+        ZdtStepper_StopDiagnosticScan();
+        g_competition_service.health_check_state =
+            (uint8_t) COMPETITION_HEALTH_CHECK_COMPLETE;
+    }
+
     if (g_competition_service.state ==
             (uint8_t) COMPETITION_STATE_COUNTDOWN) {
         uint32_t elapsed = now_ms - s_countdown_start_ms;
@@ -491,6 +504,28 @@ void CompetitionService_HandleEvent(ui_input_event_t event,
     }
     if (g_competition_service.advanced_mode != 0U) {
         CompetitionService_HandleAdvanced(event, now_ms);
+        return;
+    }
+    if (g_competition_service.page ==
+            (uint8_t) COMPETITION_PAGE_SYSTEM &&
+        event.key == UI_KEY_OK && event.kind == UI_EVENT_LONG_PRESS) {
+        ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_NONE);
+        (void) ImuService_RequestRecalibration();
+        return;
+    }
+    if (g_competition_service.page ==
+            (uint8_t) COMPETITION_PAGE_HEALTH &&
+        event.key == UI_KEY_OK && event.kind == UI_EVENT_LONG_PRESS) {
+        ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_NONE);
+        if (ZdtStepper_StartDiagnosticScan()) {
+            s_health_check_start_ms = now_ms;
+            g_competition_service.health_check_count++;
+            g_competition_service.health_check_state =
+                (uint8_t) COMPETITION_HEALTH_CHECK_RUNNING;
+        } else {
+            g_competition_service.health_check_state =
+                (uint8_t) COMPETITION_HEALTH_CHECK_FAILED;
+        }
         return;
     }
     if (g_competition_service.page ==

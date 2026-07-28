@@ -10,6 +10,7 @@
 #define SSD1306_CONTROL_COMMAND   0x00U
 #define SSD1306_CONTROL_DATA      0x40U
 #define SSD1306_DATA_CHUNK_BYTES  7U
+#define SSD1306_DATA_CHUNKS_PER_STEP 19U
 #define SSD1306_FONT_WIDTH        5U
 #define SSD1306_CHAR_WIDTH        6U
 
@@ -36,6 +37,11 @@ static const ssd1306_glyph_t s_font[] = {
     {':', {0x00, 0x36, 0x36, 0x00, 0x00}},
     {'=', {0x14, 0x14, 0x14, 0x14, 0x14}},
     {'?', {0x02, 0x01, 0x51, 0x09, 0x06}},
+    {'+', {0x08, 0x08, 0x3E, 0x08, 0x08}},
+    {'%', {0x63, 0x13, 0x08, 0x64, 0x63}},
+    {'*', {0x14, 0x08, 0x3E, 0x08, 0x14}},
+    {'>', {0x00, 0x41, 0x22, 0x14, 0x08}},
+    {'_', {0x40, 0x40, 0x40, 0x40, 0x40}},
     {'A', {0x7E, 0x11, 0x11, 0x11, 0x7E}},
     {'B', {0x7F, 0x49, 0x49, 0x49, 0x36}},
     {'C', {0x3E, 0x41, 0x41, 0x41, 0x22}},
@@ -61,17 +67,65 @@ static const ssd1306_glyph_t s_font[] = {
     {'W', {0x3F, 0x40, 0x38, 0x40, 0x3F}},
     {'X', {0x63, 0x14, 0x08, 0x14, 0x63}},
     {'Y', {0x07, 0x08, 0x70, 0x08, 0x07}},
-    {'Z', {0x61, 0x51, 0x49, 0x45, 0x43}}
+    {'Z', {0x61, 0x51, 0x49, 0x45, 0x43}},
+    {'a', {0x20, 0x54, 0x54, 0x54, 0x78}},
+    {'b', {0x7F, 0x48, 0x44, 0x44, 0x38}},
+    {'c', {0x38, 0x44, 0x44, 0x44, 0x20}},
+    {'d', {0x38, 0x44, 0x44, 0x48, 0x7F}},
+    {'e', {0x38, 0x54, 0x54, 0x54, 0x18}},
+    {'f', {0x08, 0x7E, 0x09, 0x01, 0x02}},
+    {'g', {0x0C, 0x52, 0x52, 0x52, 0x3E}},
+    {'h', {0x7F, 0x08, 0x04, 0x04, 0x78}},
+    {'i', {0x00, 0x44, 0x7D, 0x40, 0x00}},
+    {'j', {0x20, 0x40, 0x44, 0x3D, 0x00}},
+    {'k', {0x7F, 0x10, 0x28, 0x44, 0x00}},
+    {'l', {0x00, 0x41, 0x7F, 0x40, 0x00}},
+    {'m', {0x7C, 0x04, 0x18, 0x04, 0x78}},
+    {'n', {0x7C, 0x08, 0x04, 0x04, 0x78}},
+    {'o', {0x38, 0x44, 0x44, 0x44, 0x38}},
+    {'p', {0x7C, 0x14, 0x14, 0x14, 0x08}},
+    {'q', {0x08, 0x14, 0x14, 0x18, 0x7C}},
+    {'r', {0x7C, 0x08, 0x04, 0x04, 0x08}},
+    {'s', {0x48, 0x54, 0x54, 0x54, 0x20}},
+    {'t', {0x04, 0x3F, 0x44, 0x40, 0x20}},
+    {'u', {0x3C, 0x40, 0x40, 0x20, 0x7C}},
+    {'v', {0x1C, 0x20, 0x40, 0x20, 0x1C}},
+    {'w', {0x3C, 0x40, 0x30, 0x40, 0x3C}},
+    {'x', {0x44, 0x28, 0x10, 0x28, 0x44}},
+    {'y', {0x0C, 0x50, 0x50, 0x50, 0x3C}},
+    {'z', {0x44, 0x64, 0x54, 0x4C, 0x44}}
 };
 
 volatile ssd1306_diagnostics_t g_ssd1306_diag;
 
 static uint8_t s_framebuffer[SSD1306_WIDTH * SSD1306_PAGES];
+static uint8_t s_sent_framebuffer[SSD1306_WIDTH * SSD1306_PAGES];
 static uint8_t s_address;
 static uint8_t s_refresh_page;
 static uint8_t s_refresh_column;
 static uint8_t s_refresh_page_command_pending;
 static uint8_t s_refresh_active;
+static uint8_t s_sent_framebuffer_valid;
+
+static bool Ssd1306_AdvanceToDirtyPage(void)
+{
+    while ((s_refresh_page < SSD1306_PAGES) &&
+        (s_sent_framebuffer_valid != 0U) &&
+        (memcmp(&s_framebuffer[(uint16_t) s_refresh_page * SSD1306_WIDTH],
+            &s_sent_framebuffer[(uint16_t) s_refresh_page * SSD1306_WIDTH],
+            SSD1306_WIDTH) == 0)) {
+        s_refresh_page++;
+    }
+    return s_refresh_page < SSD1306_PAGES;
+}
+
+static ssd1306_refresh_step_result_t Ssd1306_CompleteRefresh(void)
+{
+    s_refresh_active = 0U;
+    s_sent_framebuffer_valid = 1U;
+    g_ssd1306_diag.refresh_count++;
+    return SSD1306_REFRESH_STEP_COMPLETE;
+}
 
 static const uint8_t *Ssd1306_FindGlyph(char character)
 {
@@ -159,6 +213,7 @@ bool Ssd1306_Init(void)
     g_ssd1306_diag.init_attempt_count++;
     g_ssd1306_diag.online = 0U;
     s_address = 0U;
+    s_sent_framebuffer_valid = 0U;
 
     if (Ssd1306_Probe(SSD1306_ADDRESS_PRIMARY)) {
         s_address = SSD1306_ADDRESS_PRIMARY;
@@ -223,9 +278,13 @@ void Ssd1306_BeginRefresh(void)
 ssd1306_refresh_step_result_t Ssd1306_RefreshStep(void)
 {
     uint8_t packet[BSP_I2C_MAX_WRITE_BYTES];
+    uint8_t transfer_count;
 
     if ((s_address == 0U) || (s_refresh_active == 0U)) {
         return SSD1306_REFRESH_STEP_FAILED;
+    }
+    if (!Ssd1306_AdvanceToDirtyPage()) {
+        return Ssd1306_CompleteRefresh();
     }
 
     if (s_refresh_page_command_pending != 0U) {
@@ -238,10 +297,11 @@ ssd1306_refresh_step_result_t Ssd1306_RefreshStep(void)
             return SSD1306_REFRESH_STEP_FAILED;
         }
         s_refresh_page_command_pending = 0U;
-        return SSD1306_REFRESH_STEP_PENDING;
     }
 
-    {
+    transfer_count = 0U;
+    while ((s_refresh_column < SSD1306_WIDTH) &&
+        (transfer_count < SSD1306_DATA_CHUNKS_PER_STEP)) {
         uint8_t remaining =
             (uint8_t) (SSD1306_WIDTH - s_refresh_column);
         uint8_t chunk = (remaining > SSD1306_DATA_CHUNK_BYTES) ?
@@ -261,16 +321,19 @@ ssd1306_refresh_step_result_t Ssd1306_RefreshStep(void)
             return SSD1306_REFRESH_STEP_FAILED;
         }
         s_refresh_column = (uint8_t) (s_refresh_column + chunk);
+        transfer_count++;
     }
 
     if (s_refresh_column >= SSD1306_WIDTH) {
+        (void) memcpy(
+            &s_sent_framebuffer[(uint16_t) s_refresh_page * SSD1306_WIDTH],
+            &s_framebuffer[(uint16_t) s_refresh_page * SSD1306_WIDTH],
+            SSD1306_WIDTH);
         s_refresh_page++;
         s_refresh_column = 0U;
         s_refresh_page_command_pending = 1U;
-        if (s_refresh_page >= SSD1306_PAGES) {
-            s_refresh_active = 0U;
-            g_ssd1306_diag.refresh_count++;
-            return SSD1306_REFRESH_STEP_COMPLETE;
+        if (!Ssd1306_AdvanceToDirtyPage()) {
+            return Ssd1306_CompleteRefresh();
         }
     }
     return SSD1306_REFRESH_STEP_PENDING;
@@ -304,4 +367,5 @@ void Ssd1306_MarkOffline(void)
     g_ssd1306_diag.address = 0U;
     s_address = 0U;
     s_refresh_active = 0U;
+    s_sent_framebuffer_valid = 0U;
 }

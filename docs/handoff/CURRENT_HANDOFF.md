@@ -905,3 +905,32 @@ docs/worklogs/2026-07-15_phase2a_motor_profiles.md（未跟踪）
   output are clean.
 - Next action: implement and validate the 100 Hz attitude/angle estimator
   before enabling any chassis angle-loop output.
+
+## 25. 2026-07-28 OLED TUNE glyphs, HEALTH scan, and final acceptance
+
+- Added SSD1306 `+` and `%` glyphs after the existing `?` fallback entry, so
+  TUNE signed values and PWM percentages no longer render as question marks.
+- Added a HEALTH-page `>SCAN` entry. Long-press OK starts a 1.5-second
+  read-only ZDT discovery pass; it never enables or moves a motor. The scan
+  reports `PASS/FAIL` from the individual rows.
+- The reflectance diagnostic now latches the most recently completed eight-
+  channel mask. A complete scan therefore remains `IR:OK MASK:255` instead of
+  being replaced by the next scan's transient progress mask.
+- ZDT generation 1 is intentionally `NA`: its UART2 PB15/PB16 is reserved for
+  the formal ESP32 link. ZDT generation 2 uses UART3 PB2/PB3 and is available
+  for the scan. The ZDT diagnostic scan is request-based so DisplayTask and
+  ServiceTask never concurrently reset UART state. Unavailable ports are now
+  treated as already safe during backend deselection.
+- Final full build passed with 0 errors and 0 warnings. Final byte-for-byte
+  Flash readback SHA-256 is
+  `4B2677D726BD7A964EFE0945A7840065D337CEF45B05FEF75EC3A0E21D9548D4`.
+- Final COM18 capture: Control/IMU/attitude 100 Hz, reflectance scan 125 Hz,
+  CRC/gaps/deadlines/drops/I2C errors all zero, `ActiveIssueMask=0`,
+  `StickyIssueMask=0`, actuator output disabled, and `DisplayStackFreeWords`
+  277 (minimum stack free 86 words after ZDT discovery).
+- ZDT2 direct status query returned more than 2800 valid responses with zero timeouts or
+  invalid frames; bus voltage was approximately 16.228 V. The ESP link was
+  not connected during the final scan (`LinkOnline=false`, RX bytes 0), so the
+  aggregate scan correctly showed `FAIL`; this is not an IR failure.
+- The final select/deselect acceptance returned to `BackendSelected=false`
+  and `ShutdownPending=false`; unavailable ZDT1 no longer blocks shutdown.

@@ -98,6 +98,10 @@ void ZdtStepper_Service(uint32_t now_us);
 bool ZdtStepper_SelectBackupBackend(void);
 void ZdtStepper_DeselectBackupBackend(void);
 
+/* Starts a read-only discovery pass. Motion requests remain disabled. */
+bool ZdtStepper_StartDiagnosticScan(void);
+void ZdtStepper_StopDiagnosticScan(void);
+
 zdt_stepper_request_status_t ZdtStepper_RequestEnable(
     zdt_stepper_axis_t axis, bool enable);
 zdt_stepper_request_status_t ZdtStepper_RequestSpeed(
