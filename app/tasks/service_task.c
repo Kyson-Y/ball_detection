@@ -12,6 +12,7 @@
 #include "bsp_time.h"
 #include "attitude_estimator.h"
 #include "command_service.h"
+#include "competition_service.h"
 #include "esp_uart_link_test.h"
 #include "imu_service.h"
 #include "motor_profile.h"
@@ -113,8 +114,11 @@ void ServiceTask_Entry(void *context)
 #if ECHO_ENABLE_OLED
         if ((TickType_t) (now - last_button_sample_time) >=
             SERVICE_BUTTON_SAMPLE_PERIOD) {
+            uint8_t pressed_mask = BSP_Buttons_ReadPressedMask();
+
             last_button_sample_time = now;
-            UiInput_ServicePhysical(BSP_Buttons_ReadPressedMask(),
+            CompetitionService_ServicePhysicalButtons(pressed_mask);
+            UiInput_ServicePhysical(pressed_mask,
                 (uint32_t) now);
         }
 #endif

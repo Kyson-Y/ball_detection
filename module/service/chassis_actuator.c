@@ -80,6 +80,7 @@ static float s_heading_pivot_command_deg;
 static float s_heading_pivot_progress_deg;
 static float s_heading_pivot_last_yaw_deg;
 static uint16_t s_heading_stall_cycles;
+static float s_pivot_maximum_rpm;
 static bool s_distance_settled;
 static int8_t s_last_distance_direction;
 static int8_t s_distance_direction;
@@ -747,6 +748,7 @@ void ChassisActuator_Init(void)
     s_continuous_speed = false;
     s_last_supply_sequence = 0U;
     s_supply_stale_cycles = 0U;
+    s_pivot_maximum_rpm = CHASSIS_ACTUATOR_PIVOT_MAX_RPM;
     s_last_distance_direction = 0;
     HeadingController_Init(&s_heading_controller, &s_heading_config);
     memset(&distance_config, 0, sizeof(distance_config));
@@ -1363,7 +1365,7 @@ void ChassisActuator_ServiceAtControlBoundary(
                     CHASSIS_ACTUATOR_PIVOT_KD_RPM_PER_DPS :
                     CHASSIS_ACTUATOR_HEADING_KD_RPM_PER_DPS;
             s_heading_controller.config.maximum_correction_rpm =
-                s_heading_pivot_mode ? CHASSIS_ACTUATOR_PIVOT_MAX_RPM :
+                s_heading_pivot_mode ? s_pivot_maximum_rpm :
                     CHASSIS_ACTUATOR_HEADING_MAX_CORRECTION_RPM;
             if (s_heading_pivot_mode) {
                 s_heading_pivot_command_deg = heading_delta_deg;
@@ -1456,6 +1458,22 @@ void ChassisActuator_ServiceAtControlBoundary(
     g_chassis_actuator_diag.continuous_speed =
         s_continuous_speed ? 1U : 0U;
     ChassisActuator_UpdateControllerDiagnostics();
+}
+
+bool ChassisActuator_SetPivotMaximumRpm(float maximum_rpm)
+{
+    if (maximum_rpm < CHASSIS_ACTUATOR_PIVOT_MIN_RPM ||
+        maximum_rpm > CHASSIS_ACTUATOR_PIVOT_MAX_RPM ||
+        g_chassis_actuator_diag.output_permitted != 0U) {
+        return false;
+    }
+    s_pivot_maximum_rpm = maximum_rpm;
+    return true;
+}
+
+float ChassisActuator_GetPivotMaximumRpm(void)
+{
+    return s_pivot_maximum_rpm;
 }
 
 void RtosFault_EmergencyStop(void)

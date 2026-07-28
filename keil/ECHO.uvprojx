@@ -407,6 +407,11 @@
               <FilePath>..\app\ui\diagnostic_page.c</FilePath>
             </File>
             <File>
+              <FileName>competition_page.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\app\ui\competition_page.c</FilePath>
+            </File>
+            <File>
               <FileName>ssd1306.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\module\device\ssd1306.c</FilePath>
@@ -475,6 +480,16 @@
               <FileName>parameter_service.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\module\service\parameter_service.c</FilePath>
+            </File>
+            <File>
+              <FileName>competition_service.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\module\service\competition_service.c</FilePath>
+            </File>
+            <File>
+              <FileName>competition_storage.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\module\service\competition_storage.c</FilePath>
             </File>
             <File>
               <FileName>system_health.c</FileName>

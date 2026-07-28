@@ -127,5 +127,7 @@ void ChassisActuator_ServiceAtControlBoundary(
     int32_t right_delta_counts, float left_measured_rpm,
     float right_measured_rpm, uint32_t period_us);
 void ChassisActuator_ForceSafe(chassis_actuator_stop_reason_t reason);
+bool ChassisActuator_SetPivotMaximumRpm(float maximum_rpm);
+float ChassisActuator_GetPivotMaximumRpm(void);
 
 #endif

@@ -1,5 +1,11 @@
 # ECHO
 
+## Competition firmware
+
+The formal 513X competition build, OLED/button workflow, UART ownership,
+settings persistence and safety behavior are documented in
+[`docs/COMPETITION_FIRMWARE.md`](docs/COMPETITION_FIRMWARE.md).
+
 ECHO 是面向立创天猛星 MSPM0G3507 的电赛控制类 FreeRTOS 通用工程。目标是在加入底盘、
 云台和视觉前，先建立可测量、可调参、可诊断和可安全扩展的平台。
 

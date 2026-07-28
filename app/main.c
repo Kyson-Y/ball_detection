@@ -11,6 +11,7 @@
 #include "attitude_estimator.h"
 #include "chassis_actuator.h"
 #include "command_service.h"
+#include "competition_service.h"
 #include "esp_uart_link_test.h"
 #include "imu_service.h"
 #include "motor_profile.h"
@@ -60,6 +61,7 @@ int main(void)
     SerialTx_Init();
     SerialRx_Init();
     ParameterService_Init();
+    CompetitionService_Init();
     CommandService_Init();
     RtosDiagnostics_Init(BSP_TIME_FREQUENCY_HZ);
     SystemHealth_Init();
