@@ -522,6 +522,11 @@
               <FilePath>..\bsp\source\bsp_led.c</FilePath>
             </File>
             <File>
+              <FileName>bsp_buttons.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bsp\source\bsp_buttons.c</FilePath>
+            </File>
+            <File>
               <FileName>bsp_time.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\bsp\source\bsp_time.c</FilePath>

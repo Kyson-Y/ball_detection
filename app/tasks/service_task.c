@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "FreeRTOS.h"
+#include "bsp_buttons.h"
 #include "bsp_led.h"
 #include "bsp_i2c.h"
 #include "bsp_reflectance.h"
@@ -23,6 +24,7 @@
 #include "telemetry.h"
 #include "tfmini_s.h"
 #include "tfmini_transport_config.h"
+#include "ui_input.h"
 #include "vehicle_bringup_config.h"
 #include "zdt_stepper.h"
 
@@ -34,6 +36,7 @@
 #define SERVICE_REFLECTANCE_TELEMETRY_DECIMATION 125U
 #define SERVICE_SUPPLY_SAMPLE_PERIOD pdMS_TO_TICKS(10U)
 #define SERVICE_SUPPLY_TELEMETRY_PERIOD pdMS_TO_TICKS(100U)
+#define SERVICE_BUTTON_SAMPLE_PERIOD pdMS_TO_TICKS(5U)
 #define SERVICE_TFMINI_TELEMETRY_PERIOD pdMS_TO_TICKS(50U)
 #define SERVICE_TFMINI_I2C_PERIOD pdMS_TO_TICKS(20U)
 #define SERVICE_TFMINI_I2C_ADDRESS 0x10U
@@ -71,6 +74,7 @@ void ServiceTask_Entry(void *context)
     TickType_t last_health_telemetry_time = last_wake_time;
     TickType_t last_supply_sample_time = last_wake_time;
     TickType_t last_supply_telemetry_time = last_wake_time;
+    TickType_t last_button_sample_time = last_wake_time;
     TickType_t last_tfmini_telemetry_time = last_wake_time;
 #if ECHO_ENABLE_IMU
     TickType_t last_imu_telemetry_time = last_wake_time;
@@ -106,6 +110,14 @@ void ServiceTask_Entry(void *context)
         CommandService_ProcessRx();
         now_us = BSP_Time_GetUs();
         ZdtStepper_Service(now_us);
+#if ECHO_ENABLE_OLED
+        if ((TickType_t) (now - last_button_sample_time) >=
+            SERVICE_BUTTON_SAMPLE_PERIOD) {
+            last_button_sample_time = now;
+            UiInput_ServicePhysical(BSP_Buttons_ReadPressedMask(),
+                (uint32_t) now);
+        }
+#endif
 #if ECHO_ENABLE_ESP_LINK
         EspUartLinkTest_Process(now_us);
 #endif

@@ -1,5 +1,6 @@
 #include "FreeRTOS.h"
 #include "app_tasks.h"
+#include "bsp_buttons.h"
 #include "bsp_encoder.h"
 #include "bsp_esp_uart.h"
 #include "bsp_reflectance.h"
@@ -34,6 +35,7 @@ int main(void)
     MotorProfile_Init();
     ChassisActuator_Init();
     BSP_Time_Init();
+    BSP_Buttons_Init();
 #if ECHO_ENABLE_ESP_LINK
     BSP_EspUart_Init();
     EspUartLinkTest_Init();

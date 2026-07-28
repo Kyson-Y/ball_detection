@@ -298,6 +298,27 @@ bool SYSCFG_DL_SYSCTL_SYSPLL_init(void);
 /* Defines for REFLECTANCE_AD2: GPIOB.11 with pinCMx 28 on package pin 63 */
 #define GPIO_REFLECTANCE_MUX_REFLECTANCE_AD2_PIN                (DL_GPIO_PIN_11)
 #define GPIO_REFLECTANCE_MUX_REFLECTANCE_AD2_IOMUX               (IOMUX_PINCM28)
+/* Port definition for Pin Group GPIO_BUTTONS_A */
+#define GPIO_BUTTONS_A_PORT                                              (GPIOA)
+
+/* Defines for BUTTON_KEY3: GPIOA.14 with pinCMx 36 on package pin 7 */
+#define GPIO_BUTTONS_A_BUTTON_KEY3_PIN                          (DL_GPIO_PIN_14)
+#define GPIO_BUTTONS_A_BUTTON_KEY3_IOMUX                         (IOMUX_PINCM36)
+/* Defines for BUTTON_KEY4: GPIOA.16 with pinCMx 38 on package pin 9 */
+#define GPIO_BUTTONS_A_BUTTON_KEY4_PIN                          (DL_GPIO_PIN_16)
+#define GPIO_BUTTONS_A_BUTTON_KEY4_IOMUX                         (IOMUX_PINCM38)
+/* Port definition for Pin Group GPIO_BUTTONS_B */
+#define GPIO_BUTTONS_B_PORT                                              (GPIOB)
+
+/* Defines for BUTTON_KEY1: GPIOB.25 with pinCMx 56 on package pin 27 */
+#define GPIO_BUTTONS_B_BUTTON_KEY1_PIN                          (DL_GPIO_PIN_25)
+#define GPIO_BUTTONS_B_BUTTON_KEY1_IOMUX                         (IOMUX_PINCM56)
+/* Defines for BUTTON_KEY2: GPIOB.20 with pinCMx 48 on package pin 19 */
+#define GPIO_BUTTONS_B_BUTTON_KEY2_PIN                          (DL_GPIO_PIN_20)
+#define GPIO_BUTTONS_B_BUTTON_KEY2_IOMUX                         (IOMUX_PINCM48)
+/* Defines for BUTTON_KEY5: GPIOB.19 with pinCMx 45 on package pin 16 */
+#define GPIO_BUTTONS_B_BUTTON_KEY5_PIN                          (DL_GPIO_PIN_19)
+#define GPIO_BUTTONS_B_BUTTON_KEY5_IOMUX                         (IOMUX_PINCM45)
 
 
 /* clang-format on */
