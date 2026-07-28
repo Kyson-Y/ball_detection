@@ -81,7 +81,7 @@ sensor circuit and protocol are finalized.
 
 - Full FreeRTOS library and application rebuild: 0 errors, 0 warnings.
 - Application size: Code 96440, RO 3532, RW 188, ZI 21920 bytes.
-- Main-flash HEX maximum address: `0x0001876F`; no data overlaps the
+- Main-flash HEX maximum address: `0x0001873F`; no data overlaps the
   `0x0001FC00--0x0001FFFF` settings sector.
 - DAPLink programming and byte-for-byte readback passed; image SHA-256 was
   `AEE9DAE22809E3E082DCDE6A4465C145AB7AC66A2FB9047996F15B50E4C63FFA`.
