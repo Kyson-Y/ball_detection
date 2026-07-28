@@ -24,6 +24,7 @@
 #include "tfmini_s.h"
 #include "tfmini_transport_config.h"
 #include "vehicle_bringup_config.h"
+#include "zdt_stepper.h"
 
 #define SERVICE_TASK_PERIOD pdMS_TO_TICKS(1U)
 #define SERVICE_HEARTBEAT_TIMEOUT pdMS_TO_TICKS(1500U)
@@ -104,6 +105,7 @@ void ServiceTask_Entry(void *context)
 
         CommandService_ProcessRx();
         now_us = BSP_Time_GetUs();
+        ZdtStepper_Service(now_us);
 #if ECHO_ENABLE_ESP_LINK
         EspUartLinkTest_Process(now_us);
 #endif

@@ -51,7 +51,7 @@ $LegacyEspLinkPayloadLength = 64
 $EspLinkPayloadLength = 96
 $AttitudePayloadLength = 64
 $MinimumFrameLength = 16
-$MaximumPayloadLength = 128
+$MaximumPayloadLength = 160
 [uint64]$U32HalfRange = 2147483648
 
 function Get-Crc16Ccitt {

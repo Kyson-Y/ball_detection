@@ -422,6 +422,16 @@
               <FilePath>..\module\device\mpu6050.c</FilePath>
             </File>
             <File>
+              <FileName>zdt_protocol.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\module\device\zdt_protocol.c</FilePath>
+            </File>
+            <File>
+              <FileName>zdt_stepper.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\module\device\zdt_stepper.c</FilePath>
+            </File>
+            <File>
               <FileName>system_task.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\app\tasks\system_task.c</FilePath>
@@ -560,6 +570,11 @@
               <FileName>bsp_supply_voltage.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\bsp\source\bsp_supply_voltage.c</FilePath>
+            </File>
+            <File>
+              <FileName>bsp_zdt_uart.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bsp\source\bsp_zdt_uart.c</FilePath>
             </File>
           </Files>
         </Group>

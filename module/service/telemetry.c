@@ -35,7 +35,8 @@ typedef enum {
     TELEMETRY_MESSAGE_TFMINI = 8U,
     TELEMETRY_MESSAGE_IMU = 9U,
     TELEMETRY_MESSAGE_ESP_LINK = 10U,
-    TELEMETRY_MESSAGE_ATTITUDE = 11U
+    TELEMETRY_MESSAGE_ATTITUDE = 11U,
+    TELEMETRY_MESSAGE_ZDT_ACK = 12U
 } telemetry_message_kind_t;
 
 typedef struct {
@@ -113,6 +114,7 @@ typedef struct {
         telemetry_control_sample_t control;
         telemetry_parameter_ack_t parameter_ack;
         telemetry_actuator_ack_t actuator_ack;
+        telemetry_zdt_ack_t zdt_ack;
         telemetry_motor_profile_sample_t motor_profile;
         bsp_reflectance_sample_t reflectance;
         bsp_supply_voltage_sample_t supply_voltage;
@@ -279,6 +281,97 @@ static uint16_t Telemetry_EncodeActuatorAck(
     payload[10] = ack->status;
     payload[11] = ack->reserved;
     Telemetry_PutU32(&payload[12], ack->accepted_request_count);
+    return Telemetry_EndFrame(frame, payload_length);
+}
+
+static uint16_t Telemetry_EncodeZdtAck(
+    const telemetry_message_t *message, uint8_t *frame)
+{
+    const telemetry_zdt_ack_t *ack = &message->data.zdt_ack;
+    uint8_t *payload = &frame[FRAME_OFFSET_PAYLOAD];
+    uint16_t payload_length = TELEMETRY_ZDT_ACK_PAYLOAD_BYTES;
+
+    (void) Telemetry_BeginFrame(frame,
+        TELEMETRY_FRAME_TYPE_ZDT_ACK, payload_length,
+        message->sequence, message->timestamp_us);
+    Telemetry_PutU32(&payload[0], ack->sequence);
+    Telemetry_PutU32(&payload[4], (uint32_t) ack->value);
+    Telemetry_PutU32(&payload[8], ack->gen1_response_count);
+    Telemetry_PutU32(&payload[12], ack->gen2_response_count);
+    Telemetry_PutU16(&payload[16], ack->gen1_timeout_count);
+    Telemetry_PutU16(&payload[18], ack->gen2_timeout_count);
+    payload[20] = ack->operation;
+    payload[21] = ack->axis;
+    payload[22] = ack->status;
+    payload[23] = ack->flags;
+    for (uint32_t axis = 0U; axis < 2U; axis++) {
+        const telemetry_zdt_axis_snapshot_t *snapshot =
+            &ack->axis_snapshot[axis];
+        uint8_t *axis_payload = &payload[24U +
+            (axis * TELEMETRY_ZDT_AXIS_SNAPSHOT_BYTES)];
+
+        Telemetry_PutU32(&axis_payload[0], snapshot->tx_command_count);
+        Telemetry_PutU32(&axis_payload[4], snapshot->tx_query_count);
+        Telemetry_PutU32(&axis_payload[8], snapshot->invalid_response_count);
+        Telemetry_PutU32(&axis_payload[12], snapshot->position_reached_count);
+        Telemetry_PutU32(&axis_payload[16],
+            snapshot->speed_lease_expired_count);
+        Telemetry_PutU32(&axis_payload[20],
+            (uint32_t) snapshot->position_counts);
+        Telemetry_PutU32(&axis_payload[24],
+            (uint32_t) snapshot->position_millidegrees);
+        Telemetry_PutU16(&axis_payload[28],
+            (uint16_t) snapshot->speed_rpm);
+        Telemetry_PutU16(&axis_payload[30], snapshot->firmware_version);
+        Telemetry_PutU16(&axis_payload[32], snapshot->hardware_version);
+        axis_payload[34] = snapshot->motor_status_flags;
+        axis_payload[35] = snapshot->last_function;
+        axis_payload[36] = snapshot->last_reply_status;
+        axis_payload[37] = snapshot->stalled;
+        axis_payload[38] = snapshot->stall_protected;
+        axis_payload[39] = snapshot->reserved;
+    }
+    Telemetry_PutU16(&payload[104], ack->gen2_bus_voltage_mv);
+    Telemetry_PutU16(&payload[106], ack->gen2_phase_current_ma);
+    Telemetry_PutU16(&payload[108], ack->gen2_encoder_linear);
+    Telemetry_PutU32(&payload[110],
+        (uint32_t) ack->gen2_target_position_counts);
+    Telemetry_PutU32(&payload[114],
+        (uint32_t) ack->gen2_position_error_counts);
+    payload[118] = ack->gen2_homing_status_flags;
+    payload[119] = ack->gen2_extended_valid_flags;
+    payload[120] = ack->gen2_driver_config.motor_type;
+    payload[121] = ack->gen2_driver_config.pulse_port_mode;
+    payload[122] = ack->gen2_driver_config.communication_port_mode;
+    payload[123] = ack->gen2_driver_config.enable_active_level;
+    payload[124] = ack->gen2_driver_config.direction_active_level;
+    payload[125] = ack->gen2_driver_config.microstep;
+    payload[126] = ack->gen2_driver_config.interpolation_enabled;
+    payload[127] = ack->gen2_driver_config.reserved;
+    payload[128] = ack->gen2_driver_config.uart_baud_code;
+    payload[129] = ack->gen2_driver_config.can_rate_code;
+    payload[130] = ack->gen2_driver_config.address;
+    payload[131] = ack->gen2_driver_config.checksum_mode;
+    payload[132] = ack->gen2_driver_config.response_mode;
+    payload[133] = ack->gen2_driver_config.stall_protection_mode;
+    Telemetry_PutU16(&payload[134],
+        ack->gen2_driver_config.open_loop_current_ma);
+    Telemetry_PutU16(&payload[136],
+        ack->gen2_driver_config.closed_loop_current_ma);
+    Telemetry_PutU16(&payload[138],
+        ack->gen2_driver_config.maximum_output_voltage_setting);
+    Telemetry_PutU16(&payload[140],
+        ack->gen2_driver_config.stall_speed_rpm);
+    Telemetry_PutU16(&payload[142],
+        ack->gen2_driver_config.stall_current_ma);
+    Telemetry_PutU16(&payload[144],
+        ack->gen2_driver_config.stall_time_ms);
+    Telemetry_PutU16(&payload[146],
+        ack->gen2_driver_config.position_window_tenths_degree);
+    Telemetry_PutU32(&payload[148], ack->pcb_battery_mv);
+    Telemetry_PutU16(&payload[152], ack->pcb_battery_filtered_raw);
+    payload[154] = ack->pcb_battery_valid;
+    payload[155] = ack->reserved;
     return Telemetry_EndFrame(frame, payload_length);
 }
 
@@ -659,10 +752,13 @@ static void Telemetry_Task(void *context)
             frame_length = Telemetry_EncodeEspLink(&message, frame);
             g_telemetry_diag.last_frame_type =
                 TELEMETRY_FRAME_TYPE_ESP_LINK;
-        } else {
+        } else if (message.kind == TELEMETRY_MESSAGE_ATTITUDE) {
             frame_length = Telemetry_EncodeAttitude(&message, frame);
             g_telemetry_diag.last_frame_type =
                 TELEMETRY_FRAME_TYPE_ATTITUDE;
+        } else {
+            frame_length = Telemetry_EncodeZdtAck(&message, frame);
+            g_telemetry_diag.last_frame_type = TELEMETRY_FRAME_TYPE_ZDT_ACK;
         }
 
         crc_offset = (uint16_t) (frame_length - 2U);
@@ -792,6 +888,28 @@ bool Telemetry_PublishActuatorAck(const telemetry_actuator_ack_t *ack)
         g_telemetry_diag.actuator_ack_accepted_count++;
     } else {
         g_telemetry_diag.actuator_ack_dropped_count++;
+    }
+    return accepted;
+}
+
+bool Telemetry_PublishZdtAck(const telemetry_zdt_ack_t *ack)
+{
+    telemetry_message_t message;
+    bool accepted;
+
+    g_telemetry_diag.zdt_ack_attempt_count++;
+    if ((ack == NULL) || (s_queue == NULL)) {
+        g_telemetry_diag.zdt_ack_dropped_count++;
+        return false;
+    }
+
+    message.kind = TELEMETRY_MESSAGE_ZDT_ACK;
+    message.data.zdt_ack = *ack;
+    accepted = Telemetry_EnqueueMessage(&message);
+    if (accepted) {
+        g_telemetry_diag.zdt_ack_accepted_count++;
+    } else {
+        g_telemetry_diag.zdt_ack_dropped_count++;
     }
     return accepted;
 }

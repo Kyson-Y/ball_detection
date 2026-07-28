@@ -206,6 +206,22 @@ bool SYSCFG_DL_SYSCTL_SYSPLL_init(void);
 #define ESP_LINK_UART_BAUD_RATE                                         (230400)
 #define ESP_LINK_UART_IBRD_40_MHZ_230400_BAUD                               (10)
 #define ESP_LINK_UART_FBRD_40_MHZ_230400_BAUD                               (54)
+/* Defines for ZDT_GEN2_UART */
+#define ZDT_GEN2_UART_INST                                                 UART3
+#define ZDT_GEN2_UART_INST_FREQUENCY                                    80000000
+#define ZDT_GEN2_UART_INST_IRQHandler                           UART3_IRQHandler
+#define ZDT_GEN2_UART_INST_INT_IRQN                               UART3_INT_IRQn
+#define GPIO_ZDT_GEN2_UART_RX_PORT                                         GPIOB
+#define GPIO_ZDT_GEN2_UART_TX_PORT                                         GPIOB
+#define GPIO_ZDT_GEN2_UART_RX_PIN                                  DL_GPIO_PIN_3
+#define GPIO_ZDT_GEN2_UART_TX_PIN                                  DL_GPIO_PIN_2
+#define GPIO_ZDT_GEN2_UART_IOMUX_RX                              (IOMUX_PINCM16)
+#define GPIO_ZDT_GEN2_UART_IOMUX_TX                              (IOMUX_PINCM15)
+#define GPIO_ZDT_GEN2_UART_IOMUX_RX_FUNC               IOMUX_PINCM16_PF_UART3_RX
+#define GPIO_ZDT_GEN2_UART_IOMUX_TX_FUNC               IOMUX_PINCM15_PF_UART3_TX
+#define ZDT_GEN2_UART_BAUD_RATE                                         (115200)
+#define ZDT_GEN2_UART_IBRD_80_MHZ_115200_BAUD                               (43)
+#define ZDT_GEN2_UART_FBRD_80_MHZ_115200_BAUD                               (26)
 
 
 
@@ -246,6 +262,9 @@ bool SYSCFG_DL_SYSCTL_SYSPLL_init(void);
 /* Defines for ESP_LINK_UART_TX_DMA */
 #define ESP_LINK_UART_TX_DMA_CHAN_ID                                         (2)
 #define ESP_LINK_UART_INST_DMA_TRIGGER_1                     (DMA_UART2_TX_TRIG)
+/* Defines for ZDT_GEN2_UART_TX_DMA */
+#define ZDT_GEN2_UART_TX_DMA_CHAN_ID                                         (0)
+#define ZDT_GEN2_UART_INST_DMA_TRIGGER                       (DMA_UART3_TX_TRIG)
 
 
 /* Port definition for Pin Group GPIO_LEDS */
@@ -297,6 +316,7 @@ void SYSCFG_DL_OLED_I2C_init(void);
 void SYSCFG_DL_DEBUG_UART_init(void);
 void SYSCFG_DL_LIDAR_UART_init(void);
 void SYSCFG_DL_ESP_LINK_UART_init(void);
+void SYSCFG_DL_ZDT_GEN2_UART_init(void);
 void SYSCFG_DL_REFLECTANCE_ADC_init(void);
 void SYSCFG_DL_SUPPLY_ADC_init(void);
 void SYSCFG_DL_DMA_init(void);

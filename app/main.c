@@ -25,6 +25,7 @@
 #include "tfmini_transport_config.h"
 #include "ti_msp_dl_config.h"
 #include "vehicle_bringup_config.h"
+#include "zdt_stepper.h"
 
 int main(void)
 {
@@ -53,6 +54,7 @@ int main(void)
 #if TFMINI_S_ENABLE_UART_TO_I2C_MIGRATION
     BSP_TfminiUart_Init();
 #endif
+    ZdtStepper_Init();
     SerialTx_Init();
     SerialRx_Init();
     ParameterService_Init();
