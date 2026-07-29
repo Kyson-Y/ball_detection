@@ -4,7 +4,7 @@
 
 - Added five registered H2--H6 mission placeholders.
 - Reduced navigation to `MAIN -> TEST -> TUNE -> DIAG`.
-- Made formal runs use a dedicated large `SS.mmm` timer screen.
+- Made formal runs use a dedicated large `SS.mm` timer screen.
 - Preserved test diagnostics and the existing control tuning views.
 - Preserved immediate any-key emergency stop and frozen result time.
 
@@ -26,7 +26,7 @@ Target: the board reporting on `COM18`, CMSIS-DAP serial `2e4c7219`.
 | Emergency stop | Arbitrary key produced `ABORTED` |
 | Chassis output | Permission stayed zero throughout |
 | H6 callbacks | Start/service/stop counters advanced |
-| OLED framebuffer | `H6 RUN` plus unclipped large `SS.mmm` |
+| OLED framebuffer | `H6 RUN` plus unclipped large `SS.mm` |
 | Runtime health | 0 I2C error, 0 deadline miss, OLED online |
 | Display stack | 286 words minimum free |
 

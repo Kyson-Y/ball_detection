@@ -35,7 +35,7 @@ The four pages are `MAIN`, `TEST`, `TUNE`, and `DIAG`. Left/right changes page
 when the car is safe. `MAIN` selects H2--H6 with up/down and starts the selected
 formal task immediately with a short `OK` press. During a formal task the OLED
 is a dedicated timing screen: the task/state stays on the top line and the
-largest fitting `SS.mmm` timer occupies the display body. A stopped result keeps
+largest fitting `SS.mm` timer occupies the display body. A stopped result keeps
 the frozen time until `OK` acknowledges it.
 
 `TEST` retains the configurable distance/heading test, start delay, task slot,
@@ -89,13 +89,13 @@ camera-link placeholders.
 
 - Full FreeRTOS/application rebuild: 0 errors, 0 warnings.
 - Program/readback passed on CMSIS-DAP `2e4c7219`; image SHA-256
-  `AFD27FBE56379C0BC2C66BDB048CA8BE2E267B3D021BBD651FCC6F644C0C3678`.
+  `AB99C4F8D7CA94CC10922D2A5EF06B6AD350C29DEB18764E08F6099CA06C2F7F`.
 - Five-second runtime capture: control 100 Hz, IMU 100 Hz, no CRC/sequence/I2C
   error, no deadline miss, OLED online, display stack minimum 286 words.
 - Automated H6 run: entered `RUNNING`, reached 1.606 s with output permission
   still zero, then an injected arbitrary key produced `ABORTED` at 1.632 s.
   The value remained 1.632 s after another 700 ms and the H6 stop callback ran.
-- Captured OLED framebuffer showed `H6 RUN` and an unclipped large `SS.mmm`
+- Captured OLED framebuffer showed `H6 RUN` and an unclipped large `SS.mm`
   value with no unsupported glyphs.
 
 ## Validation on 2026-07-28

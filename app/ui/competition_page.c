@@ -150,29 +150,28 @@ static void AppendAvailableStatus(competition_ui_line_t *line,
     }
 }
 
-static void FormatRunTime(uint32_t elapsed_ms, char text[7])
+static void FormatRunTime(uint32_t elapsed_ms, char text[6])
 {
     uint32_t seconds;
-    uint32_t milliseconds;
+    uint32_t hundredths;
 
     if (elapsed_ms > 99999U) {
         elapsed_ms = 99999U;
     }
     seconds = elapsed_ms / 1000U;
-    milliseconds = elapsed_ms % 1000U;
+    hundredths = (elapsed_ms % 1000U) / 10U;
     text[0] = (char) ('0' + (seconds / 10U) % 10U);
     text[1] = (char) ('0' + seconds % 10U);
     text[2] = '.';
-    text[3] = (char) ('0' + milliseconds / 100U);
-    text[4] = (char) ('0' + (milliseconds / 10U) % 10U);
-    text[5] = (char) ('0' + milliseconds % 10U);
-    text[6] = '\0';
+    text[3] = (char) ('0' + hundredths / 10U);
+    text[4] = (char) ('0' + hundredths % 10U);
+    text[5] = '\0';
 }
 
 static void RenderOfficialTimer(const competition_page_data_t *data)
 {
     competition_ui_line_t line;
-    char elapsed[7];
+    char elapsed[6];
     const uint8_t slot = data->competition.settings.task_slot;
 
     Line_Clear(&line);
@@ -182,7 +181,7 @@ static void RenderOfficialTimer(const competition_page_data_t *data)
         (competition_state_t) data->competition.state));
     Ssd1306_DrawText(0U, 0U, line.text);
     FormatRunTime(data->competition.run_elapsed_ms, elapsed);
-    Ssd1306_DrawTextScaled(10U, 20U, elapsed, 3U);
+    Ssd1306_DrawTextScaled(4U, 20U, elapsed, 4U);
 }
 
 static void RenderMain(const competition_page_data_t *data)
@@ -259,12 +258,6 @@ static void RenderMain(const competition_page_data_t *data)
     }
     Draw(6U, &line);
 
-    Line_Clear(&line);
-    Line_Text(&line, "SEQ:");
-    Line_U32(&line, data->competition.request_sequence);
-    Line_Text(&line, " S:");
-    Line_U32(&line, data->competition.emergency_stop_count);
-    Draw(7U, &line);
 }
 
 static void RenderTest(const competition_page_data_t *data)
