@@ -7,6 +7,7 @@
 
 #include "chassis_actuator.h"
 #include "attitude_estimator.h"
+#include "ball_balance_service.h"
 #include "bsp_time.h"
 #include "competition_service.h"
 #include "competition_storage.h"
@@ -70,6 +71,19 @@ typedef enum {
 #define H_LINE_SCAN_STALE_MS                  60U
 #define H_LINE_CALIBRATION_SAVE_DELAY_MS       750U
 #define H_LINE_WHEEL_CIRCUMFERENCE_MM       204.2035f
+#define H_AB_START_TARGET_DECI_RPM              200
+#define H_AB_CRUISE_TARGET_DECI_RPM            1100
+#define H_AB_RAMP_MS                            1800U
+#define H_AB_TARGET_DISTANCE_MM               1500.0f
+#define H_AB_TIMEOUT_MS                         7500U
+#define H_AB_DERIVATIVE_LEAD_SCANS                 8
+#define H_AB_MAX_CORRECTION_DECI_RPM             350
+#define H_BALANCE_START_TARGET_DECI_RPM           200
+#define H_BALANCE_CRUISE_TARGET_DECI_RPM          800
+#define H_BALANCE_RAMP_MS                        2000U
+#define H_BALANCE_TIMEOUT_MS                    29000U
+#define H_BALANCE_DERIVATIVE_LEAD_SCANS             12
+#define H_BALANCE_MAX_CORRECTION_DECI_RPM         500
 
 static const int16_t s_line_sensor_position[H_MISSION_LINE_SENSOR_COUNT] = {
     -3500, -2500, -1500, -500, 500, 1500, 2500, 3500
@@ -111,6 +125,37 @@ static int16_t HMission_ClampI16(int32_t value, int16_t minimum,
 static float HMission_AbsFloat(float value)
 {
     return (value < 0.0f) ? -value : value;
+}
+
+static bool HMission_IsLineFollowingMission(uint8_t slot)
+{
+    return slot == (uint8_t) H_MISSION_LINE_LAP ||
+        slot == (uint8_t) H_MISSION_AB_CENTER ||
+        slot == (uint8_t) H_MISSION_LAP_CENTER ||
+        slot == (uint8_t) H_MISSION_LAP_HOLD;
+}
+
+static bool HMission_IsBalanceLapMission(uint8_t slot)
+{
+    return slot == (uint8_t) H_MISSION_LAP_CENTER ||
+        slot == (uint8_t) H_MISSION_LAP_HOLD;
+}
+
+static h_mission_context_t *HMission_GetActiveLineMission(void)
+{
+    if (s_context[H_MISSION_LINE_LAP].running != 0U) {
+        return &s_context[H_MISSION_LINE_LAP];
+    }
+    if (s_context[H_MISSION_AB_CENTER].running != 0U) {
+        return &s_context[H_MISSION_AB_CENTER];
+    }
+    if (s_context[H_MISSION_LAP_CENTER].running != 0U) {
+        return &s_context[H_MISSION_LAP_CENTER];
+    }
+    if (s_context[H_MISSION_LAP_HOLD].running != 0U) {
+        return &s_context[H_MISSION_LAP_HOLD];
+    }
+    return NULL;
 }
 
 static float HMission_WrapDegrees(float angle_deg)
@@ -184,7 +229,8 @@ static uint8_t HMission_MaximumRunBits(uint8_t value)
     return maximum;
 }
 
-static int16_t HMission_SelectBaseTarget(int32_t steering_error)
+static int16_t HMission_SelectBaseTarget(int32_t steering_error,
+    uint32_t now_ms, uint8_t mission_slot)
 {
     int32_t magnitude = steering_error < 0 ?
         -steering_error : steering_error;
@@ -197,6 +243,38 @@ static int16_t HMission_SelectBaseTarget(int32_t steering_error)
         g_h_mission_diag.line_progress_mm >=
             H_LINE_FINISH_SLOW_FALLBACK_MM;
 
+    if (mission_slot == (uint8_t) H_MISSION_AB_CENTER) {
+        uint32_t elapsed_ms = now_ms - s_line_run_start_ms;
+
+        if (elapsed_ms < H_AB_RAMP_MS) {
+            int32_t target = H_AB_START_TARGET_DECI_RPM +
+                (int32_t) ((uint32_t) (
+                    H_AB_CRUISE_TARGET_DECI_RPM -
+                    H_AB_START_TARGET_DECI_RPM) * elapsed_ms /
+                    H_AB_RAMP_MS);
+
+            s_line_speed_phase = (uint8_t) H_LINE_SPEED_LAUNCH;
+            return (int16_t) target;
+        }
+        s_line_speed_phase = (uint8_t) H_LINE_SPEED_CRUISE;
+        return H_AB_CRUISE_TARGET_DECI_RPM;
+    }
+    if (HMission_IsBalanceLapMission(mission_slot)) {
+        uint32_t elapsed_ms = now_ms - s_line_run_start_ms;
+
+        if (elapsed_ms < H_BALANCE_RAMP_MS) {
+            int32_t target = H_BALANCE_START_TARGET_DECI_RPM +
+                (int32_t) ((uint32_t) (
+                    H_BALANCE_CRUISE_TARGET_DECI_RPM -
+                    H_BALANCE_START_TARGET_DECI_RPM) * elapsed_ms /
+                    H_BALANCE_RAMP_MS);
+
+            s_line_speed_phase = (uint8_t) H_LINE_SPEED_LAUNCH;
+            return (int16_t) target;
+        }
+        s_line_speed_phase = (uint8_t) H_LINE_SPEED_CRUISE;
+        return H_BALANCE_CRUISE_TARGET_DECI_RPM;
+    }
     if (finish_slow) {
         s_line_speed_phase = (uint8_t) H_LINE_SPEED_FINISH;
         s_line_straight_streak = 0U;
@@ -428,7 +506,7 @@ static void HMission_UpdateLineEstimate(
 }
 
 static chassis_actuator_command_status_t HMission_UpdateLineTargets(
-    uint32_t now_ms)
+    uint32_t now_ms, uint8_t mission_slot)
 {
     int32_t filtered;
     int32_t filtered_delta;
@@ -457,10 +535,16 @@ static chassis_actuator_command_status_t HMission_UpdateLineTargets(
         s_line_previous_filtered_position = (int16_t) filtered;
     }
     g_h_mission_diag.line_filtered_position_milli = (int16_t) filtered;
-    derivative_lead_scans =
-        g_h_mission_diag.line_progress_mm < H_LINE_LAUNCH_DISTANCE_MM ?
-        H_LINE_LAUNCH_DERIVATIVE_LEAD_SCANS :
-        H_LINE_DERIVATIVE_LEAD_SCANS;
+    if (mission_slot == (uint8_t) H_MISSION_AB_CENTER) {
+        derivative_lead_scans = H_AB_DERIVATIVE_LEAD_SCANS;
+    } else if (HMission_IsBalanceLapMission(mission_slot)) {
+        derivative_lead_scans = H_BALANCE_DERIVATIVE_LEAD_SCANS;
+    } else {
+        derivative_lead_scans =
+            g_h_mission_diag.line_progress_mm < H_LINE_LAUNCH_DISTANCE_MM ?
+            H_LINE_LAUNCH_DERIVATIVE_LEAD_SCANS :
+            H_LINE_DERIVATIVE_LEAD_SCANS;
+    }
     derivative_term = (int32_t) s_line_filtered_delta *
         derivative_lead_scans;
     derivative_term = HMission_ClampI16(derivative_term,
@@ -485,13 +569,30 @@ static chassis_actuator_command_status_t HMission_UpdateLineTargets(
         (int16_t) derivative_term;
     g_h_mission_diag.line_steering_error_milli =
         (int16_t) steering_error;
-    base_target = HMission_SelectBaseTarget(steering_error);
+    base_target = HMission_SelectBaseTarget(steering_error, now_ms,
+        mission_slot);
     g_h_mission_diag.line_base_target_deci_rpm = base_target;
     g_h_mission_diag.line_speed_phase = s_line_speed_phase;
-    correction_limit =
-        g_h_mission_diag.line_progress_mm < H_LINE_LAUNCH_DISTANCE_MM ?
-        H_LINE_LAUNCH_MAX_CORRECTION_DECI_RPM :
-        H_LINE_MAXIMUM_CORRECTION_DECI_RPM;
+    if (mission_slot == (uint8_t) H_MISSION_AB_CENTER) {
+        correction_limit = H_AB_MAX_CORRECTION_DECI_RPM;
+        if (correction_limit >
+                base_target - H_LINE_MINIMUM_TARGET_DECI_RPM) {
+            correction_limit =
+                base_target - H_LINE_MINIMUM_TARGET_DECI_RPM;
+        }
+    } else if (HMission_IsBalanceLapMission(mission_slot)) {
+        correction_limit = H_BALANCE_MAX_CORRECTION_DECI_RPM;
+        if (correction_limit >
+                base_target - H_LINE_MINIMUM_TARGET_DECI_RPM) {
+            correction_limit =
+                base_target - H_LINE_MINIMUM_TARGET_DECI_RPM;
+        }
+    } else {
+        correction_limit =
+            g_h_mission_diag.line_progress_mm < H_LINE_LAUNCH_DISTANCE_MM ?
+            H_LINE_LAUNCH_MAX_CORRECTION_DECI_RPM :
+            H_LINE_MAXIMUM_CORRECTION_DECI_RPM;
+    }
     correction = steering_error * correction_limit / 3500;
     correction = HMission_ClampI16(correction,
         (int16_t) -correction_limit,
@@ -527,7 +628,15 @@ static bool HMission_Start(void *context)
         return false;
     }
     ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_NONE);
-    if (mission->slot == (uint8_t) H_MISSION_LINE_LAP) {
+    if (mission->slot == (uint8_t) H_MISSION_BALL_STEP) {
+        uint32_t now_us = BSP_Time_GetUs();
+
+        if (!BallBalanceService_CanStartH3(now_us) ||
+            !BallBalanceService_RequestStartH3()) {
+            return false;
+        }
+    }
+    if (HMission_IsLineFollowingMission(mission->slot)) {
         if (g_h_mission_diag.line_calibration_mask != 0xFFU ||
             g_h_mission_diag.line_valid == 0U) {
             return false;
@@ -542,6 +651,9 @@ static bool HMission_Start(void *context)
         g_h_mission_diag.line_yaw_valid = 0U;
         g_h_mission_diag.line_terminal_status = H_LINE_TERMINAL_NONE;
         g_h_mission_diag.line_braking = 0U;
+        g_h_mission_diag.ab_elapsed_ms = 0U;
+        g_h_mission_diag.ab_passed = 0U;
+        g_h_mission_diag.balance_lap_elapsed_ms = 0U;
         g_h_mission_diag.line_finish_window_mask = 0U;
         g_h_mission_diag.line_finish_evidence_count = 0U;
         s_line_filter_initialized = false;
@@ -555,7 +667,8 @@ static bool HMission_Start(void *context)
         s_line_progress_last_ms = s_line_run_start_ms;
         s_line_last_command_ms = s_line_run_start_ms -
             H_LINE_COMMAND_PERIOD_MS;
-        if (HMission_UpdateLineTargets(s_line_run_start_ms) !=
+        if (HMission_UpdateLineTargets(s_line_run_start_ms,
+                mission->slot) !=
             CHASSIS_ACTUATOR_COMMAND_STAGED) {
             return false;
         }
@@ -576,7 +689,45 @@ static competition_mission_status_t HMission_Service(void *context,
         return COMPETITION_MISSION_FAULT;
     }
     g_h_mission_diag.service_count[mission->slot]++;
-    if (mission->slot == (uint8_t) H_MISSION_LINE_LAP) {
+    if (mission->slot == (uint8_t) H_MISSION_BALL_STEP) {
+        ball_balance_mission_status_t ball_status =
+            BallBalanceService_GetMissionStatus();
+
+        if (ball_status == BALL_BALANCE_MISSION_COMPLETE ||
+            ball_status == BALL_BALANCE_MISSION_FAULT) {
+            mission->running = 0U;
+            g_h_mission_diag.active_mission = H_MISSION_COUNT;
+            return ball_status == BALL_BALANCE_MISSION_COMPLETE ?
+                COMPETITION_MISSION_COMPLETE : COMPETITION_MISSION_FAULT;
+        }
+        return COMPETITION_MISSION_RUNNING;
+    }
+    if (HMission_IsLineFollowingMission(mission->slot)) {
+        if (mission->slot == (uint8_t) H_MISSION_AB_CENTER) {
+            g_h_mission_diag.ab_elapsed_ms = now_ms - s_line_run_start_ms;
+            if (g_h_mission_diag.line_terminal_status ==
+                    H_LINE_TERMINAL_NONE &&
+                g_h_mission_diag.ab_elapsed_ms >= H_AB_TIMEOUT_MS) {
+                g_h_mission_diag.ab_timeout_count++;
+                g_h_mission_diag.line_terminal_status =
+                    H_LINE_TERMINAL_FAULT;
+                ChassisActuator_ForceSafe(
+                    CHASSIS_ACTUATOR_STOP_REJECTED);
+            }
+        } else if (HMission_IsBalanceLapMission(mission->slot)) {
+            g_h_mission_diag.balance_lap_elapsed_ms =
+                now_ms - s_line_run_start_ms;
+            if (g_h_mission_diag.line_terminal_status ==
+                    H_LINE_TERMINAL_NONE &&
+                g_h_mission_diag.balance_lap_elapsed_ms >=
+                    H_BALANCE_TIMEOUT_MS) {
+                g_h_mission_diag.balance_lap_timeout_count++;
+                g_h_mission_diag.line_terminal_status =
+                    H_LINE_TERMINAL_FAULT;
+                ChassisActuator_ForceSafe(
+                    CHASSIS_ACTUATOR_STOP_REJECTED);
+            }
+        }
         if (g_h_mission_diag.line_terminal_status ==
                 H_LINE_TERMINAL_BRAKING) {
             if (g_chassis_actuator_diag.output_permitted != 0U ||
@@ -617,12 +768,17 @@ static competition_mission_status_t HMission_Service(void *context,
 static void HMission_Stop(void *context)
 {
     h_mission_context_t *mission = (h_mission_context_t *) context;
+    uint8_t was_running;
 
     if (mission == NULL || mission->slot >= H_MISSION_COUNT) {
         return;
     }
+    was_running = mission->running;
     mission->running = 0U;
-    if (mission->slot == (uint8_t) H_MISSION_LINE_LAP) {
+    if (mission->slot == (uint8_t) H_MISSION_BALL_STEP) {
+        BallBalanceService_RequestAbort();
+    }
+    if (was_running != 0U && HMission_IsLineFollowingMission(mission->slot)) {
         g_h_mission_diag.line_terminal_status = H_LINE_TERMINAL_FAULT;
     }
     g_h_mission_diag.stop_count[mission->slot]++;
@@ -689,8 +845,7 @@ void HMissionService_ProcessReflectance(
     const uint16_t raw[H_MISSION_LINE_SENSOR_COUNT],
     uint32_t scan_sequence, uint32_t now_ms)
 {
-    h_mission_context_t *line_mission =
-        &s_context[H_MISSION_LINE_LAP];
+    h_mission_context_t *line_mission = HMission_GetActiveLineMission();
 
     if (raw == NULL || scan_sequence == s_line_last_scan_sequence) {
         return;
@@ -698,7 +853,7 @@ void HMissionService_ProcessReflectance(
     s_line_last_scan_sequence = scan_sequence;
     g_h_mission_diag.line_scan_count++;
     g_h_mission_diag.line_last_scan_ms = now_ms;
-    if (line_mission->running == 0U && s_line_calibration_collecting) {
+    if (line_mission == NULL && s_line_calibration_collecting) {
         uint8_t previous_mask =
             g_h_mission_diag.line_calibration_mask;
 
@@ -722,7 +877,7 @@ void HMissionService_ProcessReflectance(
         }
     }
     HMission_UpdateLineEstimate(raw);
-    if (line_mission->running == 0U ||
+    if (line_mission == NULL ||
         g_h_mission_diag.line_terminal_status != H_LINE_TERMINAL_NONE) {
         return;
     }
@@ -744,6 +899,44 @@ void HMissionService_ProcessReflectance(
     }
     s_line_progress_last_ms = now_ms;
     HMission_UpdateLineYawProgress();
+
+    if (line_mission->slot == (uint8_t) H_MISSION_AB_CENTER) {
+        g_h_mission_diag.ab_elapsed_ms = now_ms - s_line_run_start_ms;
+        if (g_h_mission_diag.line_progress_mm >=
+                H_AB_TARGET_DISTANCE_MM) {
+            g_h_mission_diag.ab_passed = 1U;
+            g_h_mission_diag.ab_pass_count++;
+            if (!ChassisActuator_RequestControlledStop(
+                    H_LINE_CONTROLLED_STOP_MS)) {
+                g_h_mission_diag.line_terminal_status =
+                    H_LINE_TERMINAL_FAULT;
+                ChassisActuator_ForceSafe(
+                    CHASSIS_ACTUATOR_STOP_REJECTED);
+                return;
+            }
+            g_h_mission_diag.line_terminal_status =
+                H_LINE_TERMINAL_BRAKING;
+            g_h_mission_diag.line_braking = 1U;
+            return;
+        }
+        if (g_h_mission_diag.line_valid == 0U) {
+            if (g_h_mission_diag.line_lost_streak < UINT8_MAX) {
+                g_h_mission_diag.line_lost_streak++;
+            }
+            if (g_h_mission_diag.line_lost_streak >=
+                    H_LINE_LOST_STOP_SCANS) {
+                g_h_mission_diag.line_lost_stop_count++;
+                g_h_mission_diag.line_terminal_status =
+                    H_LINE_TERMINAL_FAULT;
+                ChassisActuator_ForceSafe(
+                    CHASSIS_ACTUATOR_STOP_REJECTED);
+            }
+            return;
+        }
+        g_h_mission_diag.line_lost_streak = 0U;
+        (void) HMission_UpdateLineTargets(now_ms, line_mission->slot);
+        return;
+    }
 
     if (g_h_mission_diag.line_start_cleared == 0U) {
         if (g_h_mission_diag.line_valid != 0U &&
@@ -825,7 +1018,7 @@ void HMissionService_ProcessReflectance(
         return;
     }
     g_h_mission_diag.line_lost_streak = 0U;
-    (void) HMission_UpdateLineTargets(now_ms);
+    (void) HMission_UpdateLineTargets(now_ms, line_mission->slot);
 }
 
 const char *HMissionService_Code(uint8_t slot)

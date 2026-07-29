@@ -11,6 +11,7 @@
 #include "bsp_time.h"
 #include "bsp_zdt_uart.h"
 #include "attitude_estimator.h"
+#include "ball_vision.h"
 #include "competition_page.h"
 #include "competition_service.h"
 #include "competition_storage.h"
@@ -109,6 +110,7 @@ static void DisplayTask_Render(void)
     imu_service_snapshot_t *imu = &s_display_imu_snapshot;
     const parameter_metadata_t *metadata;
     bool attitude_valid;
+    ball_vision_snapshot_t vision;
 
     memset(data, 0, sizeof(*data));
     CompetitionService_GetSnapshot(&data->competition);
@@ -125,6 +127,7 @@ static void DisplayTask_Render(void)
     data->reflectance_available = ECHO_ENABLE_REFLECTANCE;
     data->esp_available = ECHO_ENABLE_ESP_LINK;
     data->lidar_available = ECHO_ENABLE_TFMINI;
+    data->vision_available = ECHO_ENABLE_BALL_VISION;
     data->uptime_s = data->health.uptime_ticks / configTICK_RATE_HZ;
     attitude_valid = AttitudeEstimator_GetSnapshot(attitude);
     if (ImuService_GetSnapshot(imu)) {
@@ -206,6 +209,12 @@ static void DisplayTask_Render(void)
         g_esp_uart_link_test.link_online != 0U;
     data->esp_rtt_us = g_esp_uart_link_test.average_rtt_us;
     data->lidar_online = 0U;
+#if ECHO_ENABLE_BALL_VISION
+    if (BallVision_GetSnapshot(BSP_Time_GetUs(), &vision)) {
+        data->vision_online = vision.online;
+        data->vision_valid = vision.control_valid;
+    }
+#endif
     data->zdt_gen1_online =
         g_zdt_stepper_diag.axis[ZDT_STEPPER_AXIS_GEN1].online;
     data->zdt_gen2_online =
@@ -222,6 +231,7 @@ static void DisplayTask_Render(void)
         (ECHO_ENABLE_REFLECTANCE == 0U ||
             data->reflectance_mask == 0xFFU) &&
         (ECHO_ENABLE_ESP_LINK == 0U || data->esp_ready != 0U) &&
+        (ECHO_ENABLE_BALL_VISION == 0U || data->vision_online != 0U) &&
         (data->zdt_gen1_available == 0U ||
             data->zdt_gen1_online != 0U) &&
         (data->zdt_gen2_available == 0U ||

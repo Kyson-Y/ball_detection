@@ -595,6 +595,14 @@ void CompetitionService_HandleEvent(ui_input_event_t event,
                     (uint8_t) COMPETITION_STATE_ABORTED ||
                 g_competition_service.state ==
                     (uint8_t) COMPETITION_STATE_FAULT) {
+                uint8_t slot = g_competition_service.settings.task_slot;
+
+                if (g_competition_service.state ==
+                        (uint8_t) COMPETITION_STATE_RESULT &&
+                    slot < COMPETITION_TASK_SLOT_COUNT &&
+                    s_missions[slot].stop != NULL) {
+                    s_missions[slot].stop(s_missions[slot].context);
+                }
                 g_competition_service.result =
                     (uint8_t) COMPETITION_RESULT_NONE;
                 g_competition_service.run_has_started = 0U;

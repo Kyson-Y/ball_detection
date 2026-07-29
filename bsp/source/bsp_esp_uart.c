@@ -6,8 +6,8 @@
 #include "cmsis_compiler.h"
 #include "ti_msp_dl_config.h"
 
-#if ESP_LINK_UART_BAUD_RATE != 230400
-#error "ESP link UART must run at 230400 baud."
+#if ESP_LINK_UART_BAUD_RATE != 115200
+#error "UART2 ball-vision test must run at 115200 baud."
 #endif
 
 #if ESP_LINK_UART_RX_DMA_CHAN_ID != 1

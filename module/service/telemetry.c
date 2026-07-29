@@ -36,7 +36,8 @@ typedef enum {
     TELEMETRY_MESSAGE_IMU = 9U,
     TELEMETRY_MESSAGE_ESP_LINK = 10U,
     TELEMETRY_MESSAGE_ATTITUDE = 11U,
-    TELEMETRY_MESSAGE_ZDT_ACK = 12U
+    TELEMETRY_MESSAGE_ZDT_ACK = 12U,
+    TELEMETRY_MESSAGE_BALL_BALANCE = 13U
 } telemetry_message_kind_t;
 
 typedef struct {
@@ -122,6 +123,7 @@ typedef struct {
         imu_service_snapshot_t imu;
         esp_uart_link_test_snapshot_t esp_link;
         attitude_estimator_snapshot_t attitude;
+        ball_balance_snapshot_t ball_balance;
         telemetry_health_sample_t health;
     } data;
 } telemetry_message_t;
@@ -694,6 +696,66 @@ static uint16_t Telemetry_EncodeAttitude(
     return Telemetry_EndFrame(frame, payload_length);
 }
 
+static uint16_t Telemetry_EncodeBallBalance(
+    const telemetry_message_t *message, uint8_t *frame)
+{
+    const ball_balance_snapshot_t *snapshot =
+        &message->data.ball_balance;
+    uint8_t *payload = &frame[FRAME_OFFSET_PAYLOAD];
+    uint16_t payload_length = TELEMETRY_BALL_BALANCE_PAYLOAD_BYTES;
+    uint8_t status = 0U;
+
+    (void) Telemetry_BeginFrame(frame,
+        TELEMETRY_FRAME_TYPE_BALL_BALANCE, payload_length,
+        message->sequence, message->timestamp_us);
+    Telemetry_PutU32(&payload[0], snapshot->update_sequence);
+    Telemetry_PutU32(&payload[4], snapshot->elapsed_ms);
+    Telemetry_PutU32(&payload[8], snapshot->accepted_command_count);
+    Telemetry_PutU32(&payload[12], snapshot->rejected_command_count);
+    Telemetry_PutU32(&payload[16], snapshot->vision_invalid_count);
+    Telemetry_PutU32(&payload[20], snapshot->fault_count);
+    Telemetry_PutU32(&payload[24],
+        (uint32_t) snapshot->control_output_millidegrees);
+    Telemetry_PutU32(&payload[28],
+        (uint32_t) snapshot->motor_center_millidegrees);
+    Telemetry_PutU32(&payload[32],
+        (uint32_t) snapshot->motor_target_millidegrees);
+    Telemetry_PutU32(&payload[36],
+        (uint32_t) snapshot->motor_actual_millidegrees);
+    Telemetry_PutU32(&payload[40],
+        (uint32_t) snapshot->motor_error_millidegrees);
+    Telemetry_PutU16(&payload[44],
+        (uint16_t) snapshot->target_position_decimm);
+    Telemetry_PutU16(&payload[46],
+        (uint16_t) snapshot->measured_position_decimm);
+    Telemetry_PutU16(&payload[48],
+        (uint16_t) snapshot->velocity_mm_s);
+    Telemetry_PutU16(&payload[50],
+        (uint16_t) snapshot->position_error_decimm);
+    Telemetry_PutU16(&payload[52], snapshot->vision_sequence);
+    Telemetry_PutU16(&payload[54], snapshot->vision_valid_age_ms);
+    Telemetry_PutU16(&payload[56], snapshot->settle_ms);
+    payload[58] = snapshot->vision_flags;
+    payload[59] = snapshot->state;
+    payload[60] = snapshot->mission_status;
+    payload[61] = snapshot->fault;
+    if (snapshot->vision_valid != 0U) {
+        status |= 1U << 0;
+    }
+    if (snapshot->saturated != 0U) {
+        status |= 1U << 1;
+    }
+    if (snapshot->motor_online != 0U) {
+        status |= 1U << 2;
+    }
+    if (snapshot->motor_enabled != 0U) {
+        status |= 1U << 3;
+    }
+    payload[62] = status;
+    payload[63] = 0U;
+    return Telemetry_EndFrame(frame, payload_length);
+}
+
 static void Telemetry_Task(void *context)
 {
     telemetry_message_t message;
@@ -756,6 +818,10 @@ static void Telemetry_Task(void *context)
             frame_length = Telemetry_EncodeAttitude(&message, frame);
             g_telemetry_diag.last_frame_type =
                 TELEMETRY_FRAME_TYPE_ATTITUDE;
+        } else if (message.kind == TELEMETRY_MESSAGE_BALL_BALANCE) {
+            frame_length = Telemetry_EncodeBallBalance(&message, frame);
+            g_telemetry_diag.last_frame_type =
+                TELEMETRY_FRAME_TYPE_BALL_BALANCE;
         } else {
             frame_length = Telemetry_EncodeZdtAck(&message, frame);
             g_telemetry_diag.last_frame_type = TELEMETRY_FRAME_TYPE_ZDT_ACK;
@@ -1096,6 +1162,29 @@ bool Telemetry_PublishAttitude(
         g_telemetry_diag.attitude_accepted_count++;
     } else {
         g_telemetry_diag.attitude_dropped_count++;
+    }
+    return accepted;
+}
+
+bool Telemetry_PublishBallBalance(
+    const ball_balance_snapshot_t *snapshot)
+{
+    telemetry_message_t message;
+    bool accepted;
+
+    g_telemetry_diag.ball_balance_attempt_count++;
+    if ((snapshot == NULL) || (s_queue == NULL)) {
+        g_telemetry_diag.ball_balance_dropped_count++;
+        return false;
+    }
+
+    message.kind = TELEMETRY_MESSAGE_BALL_BALANCE;
+    message.data.ball_balance = *snapshot;
+    accepted = Telemetry_EnqueueMessage(&message);
+    if (accepted) {
+        g_telemetry_diag.ball_balance_accepted_count++;
+    } else {
+        g_telemetry_diag.ball_balance_dropped_count++;
     }
     return accepted;
 }

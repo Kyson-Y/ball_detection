@@ -28,6 +28,11 @@ typedef struct {
     uint32_t line_calibration_save_count;
     uint32_t line_calibration_save_failure_count;
     uint32_t line_ambiguous_scan_count;
+    uint32_t ab_pass_count;
+    uint32_t ab_timeout_count;
+    uint32_t ab_elapsed_ms;
+    uint32_t balance_lap_timeout_count;
+    uint32_t balance_lap_elapsed_ms;
     uint32_t line_last_scan_ms;
     float line_progress_mm;
     float line_clockwise_yaw_deg;
@@ -63,6 +68,7 @@ typedef struct {
     uint8_t line_finish_window_mask;
     uint8_t line_finish_evidence_count;
     uint8_t line_braking;
+    uint8_t ab_passed;
 } h_mission_diagnostics_t;
 
 extern volatile h_mission_diagnostics_t g_h_mission_diag;

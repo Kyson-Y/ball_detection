@@ -16,6 +16,7 @@ param(
     [string]$ImuCsvPath = "",
     [string]$AttitudeCsvPath = "",
     [string]$ReflectanceCsvPath = "",
+    [string]$BallBalanceCsvPath = "",
     [string]$JsonPath = ""
 )
 
@@ -35,6 +36,7 @@ $TfminiFrameType = 10
 $ImuFrameType = 11
 $EspLinkFrameType = 12
 $AttitudeFrameType = 13
+$BallBalanceFrameType = 16
 $LegacyControlPayloadLength = 40
 $DualOutputControlPayloadLength = 44
 $ControlPayloadLength = 96
@@ -51,6 +53,7 @@ $ImuPayloadLength = 88
 $LegacyEspLinkPayloadLength = 64
 $EspLinkPayloadLength = 96
 $AttitudePayloadLength = 64
+$BallBalancePayloadLength = 64
 $MinimumFrameLength = 16
 $MaximumPayloadLength = 160
 [uint64]$U32HalfRange = 2147483648
@@ -281,6 +284,33 @@ if (-not [string]::IsNullOrWhiteSpace($ReflectanceCsvPath)) {
     )
 }
 
+$ballBalanceCsvWriter = $null
+if (-not [string]::IsNullOrWhiteSpace($BallBalanceCsvPath)) {
+    $resolvedBallBalanceCsvPath =
+        [System.IO.Path]::GetFullPath($BallBalanceCsvPath)
+    $ballBalanceCsvDirectory = Split-Path -Parent $resolvedBallBalanceCsvPath
+    if (-not [string]::IsNullOrWhiteSpace($ballBalanceCsvDirectory)) {
+        New-Item -ItemType Directory -Path $ballBalanceCsvDirectory -Force |
+            Out-Null
+    }
+    $ballBalanceCsvWriter = [System.IO.StreamWriter]::new(
+        $resolvedBallBalanceCsvPath,
+        $false,
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    $ballBalanceCsvWriter.WriteLine(
+        "sequence,timestamp_us,update_sequence,elapsed_ms," +
+        "accepted_command_count,rejected_command_count," +
+        "vision_invalid_count,fault_count,control_output_deg," +
+        "motor_center_deg,motor_target_deg,motor_actual_deg," +
+        "motor_error_deg,target_position_mm,measured_position_mm," +
+        "velocity_mm_s,position_error_mm,vision_sequence," +
+        "vision_valid_age_ms,settle_ms,vision_flags,state," +
+        "mission_status,fault,vision_valid,saturated,motor_online," +
+        "motor_enabled"
+    )
+}
+
 $culture = [System.Globalization.CultureInfo]::InvariantCulture
 $offset = 0
 $validFrames = 0
@@ -295,6 +325,7 @@ $tfminiFrames = 0
 $imuFrames = 0
 $espLinkFrames = 0
 $attitudeFrames = 0
+$ballBalanceFrames = 0
 $unknownFrames = 0
 $crcErrors = 0
 [uint64]$sequenceGaps = 0
@@ -334,6 +365,8 @@ $firstAttitudeTimestamp = $null
 $lastAttitudeTimestamp = $null
 $firstAttitudeSampleSequence = $null
 $lastAttitudeSampleSequence = $null
+$firstBallBalanceTimestamp = $null
+$lastBallBalanceTimestamp = $null
 $supplyRawMinimum = [uint16]::MaxValue
 $supplyRawMaximum = 0
 [uint64]$supplyRawSum = 0
@@ -358,6 +391,7 @@ $latestTfmini = $null
 $latestImu = $null
 $latestEspLink = $null
 $latestAttitude = $null
+$latestBallBalance = $null
 
 try {
     while (($offset + $MinimumFrameLength) -le $data.Length) {
@@ -1123,6 +1157,118 @@ try {
                 $attitudeCsvWriter.WriteLine($values -join ",")
             }
         }
+        elseif (($frameType -eq $BallBalanceFrameType) -and
+            ($payloadLength -eq $BallBalancePayloadLength)) {
+            $ballBalanceFrames++
+            if ($null -eq $firstBallBalanceTimestamp) {
+                $firstBallBalanceTimestamp = $timestampUs
+            }
+            $lastBallBalanceTimestamp = $timestampUs
+
+            $ballUpdateSequence = [BitConverter]::ToUInt32(
+                $data, $payloadOffset)
+            $ballElapsedMs = [BitConverter]::ToUInt32(
+                $data, $payloadOffset + 4)
+            $ballAcceptedCommands = [BitConverter]::ToUInt32(
+                $data, $payloadOffset + 8)
+            $ballRejectedCommands = [BitConverter]::ToUInt32(
+                $data, $payloadOffset + 12)
+            $ballVisionInvalidCount = [BitConverter]::ToUInt32(
+                $data, $payloadOffset + 16)
+            $ballFaultCount = [BitConverter]::ToUInt32(
+                $data, $payloadOffset + 20)
+            $ballControlOutputMdeg = [BitConverter]::ToInt32(
+                $data, $payloadOffset + 24)
+            $ballMotorCenterMdeg = [BitConverter]::ToInt32(
+                $data, $payloadOffset + 28)
+            $ballMotorTargetMdeg = [BitConverter]::ToInt32(
+                $data, $payloadOffset + 32)
+            $ballMotorActualMdeg = [BitConverter]::ToInt32(
+                $data, $payloadOffset + 36)
+            $ballMotorErrorMdeg = [BitConverter]::ToInt32(
+                $data, $payloadOffset + 40)
+            $ballTargetPositionDecimm = [BitConverter]::ToInt16(
+                $data, $payloadOffset + 44)
+            $ballMeasuredPositionDecimm = [BitConverter]::ToInt16(
+                $data, $payloadOffset + 46)
+            $ballVelocityMmS = [BitConverter]::ToInt16(
+                $data, $payloadOffset + 48)
+            $ballPositionErrorDecimm = [BitConverter]::ToInt16(
+                $data, $payloadOffset + 50)
+            $ballVisionSequence = [BitConverter]::ToUInt16(
+                $data, $payloadOffset + 52)
+            $ballVisionValidAgeMs = [BitConverter]::ToUInt16(
+                $data, $payloadOffset + 54)
+            $ballSettleMs = [BitConverter]::ToUInt16(
+                $data, $payloadOffset + 56)
+            $ballVisionFlags = $data[$payloadOffset + 58]
+            $ballState = $data[$payloadOffset + 59]
+            $ballMissionStatus = $data[$payloadOffset + 60]
+            $ballFault = $data[$payloadOffset + 61]
+            $ballStatus = $data[$payloadOffset + 62]
+            $ballControlOutputDeg = $ballControlOutputMdeg / 1000.0
+            $ballMotorCenterDeg = $ballMotorCenterMdeg / 1000.0
+            $ballMotorTargetDeg = $ballMotorTargetMdeg / 1000.0
+            $ballMotorActualDeg = $ballMotorActualMdeg / 1000.0
+            $ballMotorErrorDeg = $ballMotorErrorMdeg / 1000.0
+            $ballTargetPositionMm = $ballTargetPositionDecimm / 10.0
+            $ballMeasuredPositionMm = $ballMeasuredPositionDecimm / 10.0
+            $ballPositionErrorMm = $ballPositionErrorDecimm / 10.0
+
+            $latestBallBalance = [pscustomobject]@{
+                UpdateSequence = $ballUpdateSequence
+                ElapsedMs = $ballElapsedMs
+                AcceptedCommandCount = $ballAcceptedCommands
+                RejectedCommandCount = $ballRejectedCommands
+                VisionInvalidCount = $ballVisionInvalidCount
+                FaultCount = $ballFaultCount
+                ControlOutputDeg = $ballControlOutputDeg
+                MotorCenterDeg = $ballMotorCenterDeg
+                MotorTargetDeg = $ballMotorTargetDeg
+                MotorActualDeg = $ballMotorActualDeg
+                MotorErrorDeg = $ballMotorErrorDeg
+                TargetPositionMm = $ballTargetPositionMm
+                MeasuredPositionMm = $ballMeasuredPositionMm
+                VelocityMmS = $ballVelocityMmS
+                PositionErrorMm = $ballPositionErrorMm
+                VisionSequence = $ballVisionSequence
+                VisionValidAgeMs = $ballVisionValidAgeMs
+                SettleMs = $ballSettleMs
+                VisionFlags = $ballVisionFlags
+                State = $ballState
+                MissionStatus = $ballMissionStatus
+                Fault = $ballFault
+                VisionValid = (($ballStatus -band 0x01) -ne 0)
+                Saturated = (($ballStatus -band 0x02) -ne 0)
+                MotorOnline = (($ballStatus -band 0x04) -ne 0)
+                MotorEnabled = (($ballStatus -band 0x08) -ne 0)
+            }
+            if ($null -ne $ballBalanceCsvWriter) {
+                $values = @(
+                    $sequence, $timestampUs, $ballUpdateSequence,
+                    $ballElapsedMs, $ballAcceptedCommands,
+                    $ballRejectedCommands, $ballVisionInvalidCount,
+                    $ballFaultCount,
+                    $ballControlOutputDeg.ToString("R", $culture),
+                    $ballMotorCenterDeg.ToString("R", $culture),
+                    $ballMotorTargetDeg.ToString("R", $culture),
+                    $ballMotorActualDeg.ToString("R", $culture),
+                    $ballMotorErrorDeg.ToString("R", $culture),
+                    $ballTargetPositionMm.ToString("R", $culture),
+                    $ballMeasuredPositionMm.ToString("R", $culture),
+                    $ballVelocityMmS,
+                    $ballPositionErrorMm.ToString("R", $culture),
+                    $ballVisionSequence, $ballVisionValidAgeMs,
+                    $ballSettleMs, $ballVisionFlags, $ballState,
+                    $ballMissionStatus, $ballFault,
+                    [int](($ballStatus -band 0x01) -ne 0),
+                    [int](($ballStatus -band 0x02) -ne 0),
+                    [int](($ballStatus -band 0x04) -ne 0),
+                    [int](($ballStatus -band 0x08) -ne 0)
+                )
+                $ballBalanceCsvWriter.WriteLine($values -join ",")
+            }
+        }
         else {
             $unknownFrames++
         }
@@ -1142,6 +1288,9 @@ finally {
     }
     if ($null -ne $reflectanceCsvWriter) {
         $reflectanceCsvWriter.Dispose()
+    }
+    if ($null -ne $ballBalanceCsvWriter) {
+        $ballBalanceCsvWriter.Dispose()
     }
 }
 
@@ -1252,6 +1401,10 @@ $summary = [pscustomobject]@{
             (Get-U32Delta -Current $lastAttitudeTimestamp `
                 -Previous $firstAttitudeTimestamp), 3)
     } else { 0.0 }
+    BallBalanceFrames = $ballBalanceFrames
+    BallBalanceRateHz = Get-RateHz -Count $ballBalanceFrames `
+        -FirstTimestamp $firstBallBalanceTimestamp `
+        -LastTimestamp $lastBallBalanceTimestamp
     UnknownFrames = $unknownFrames
     CrcErrors = $crcErrors
     SequenceGaps = $sequenceGaps
@@ -1277,10 +1430,12 @@ $summary = [pscustomobject]@{
     LatestImu = $latestImu
     LatestEspLink = $latestEspLink
     LatestAttitude = $latestAttitude
+    LatestBallBalance = $latestBallBalance
     CsvPath = $CsvPath
     ImuCsvPath = $ImuCsvPath
     AttitudeCsvPath = $AttitudeCsvPath
     ReflectanceCsvPath = $ReflectanceCsvPath
+    BallBalanceCsvPath = $BallBalanceCsvPath
     JsonPath = $JsonPath
 }
 
@@ -1297,7 +1452,8 @@ if (-not [string]::IsNullOrWhiteSpace($JsonPath)) {
 $summary | Format-List
 
 $diagnosticCapture = (-not [string]::IsNullOrWhiteSpace($ImuCsvPath)) -or
-    (-not [string]::IsNullOrWhiteSpace($AttitudeCsvPath))
+    (-not [string]::IsNullOrWhiteSpace($AttitudeCsvPath)) -or
+    (-not [string]::IsNullOrWhiteSpace($BallBalanceCsvPath))
 $minimumControlFrames = if (-not $diagnosticCapture) {
     [int]($DurationSeconds * 90)
 } else { 0 }

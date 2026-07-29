@@ -548,8 +548,9 @@ static void RenderDiagHardware(const competition_page_data_t *data)
     AppendAvailableStatus(&line, data->esp_available, data->esp_ready);
     Draw(5U, &line);
     Line_Clear(&line);
-    Line_Text(&line, "LDR:");
-    AppendAvailableStatus(&line, data->lidar_available, data->lidar_online);
+    Line_Text(&line, "VIS:");
+    AppendAvailableStatus(&line, data->vision_available,
+        data->vision_online);
     Line_Text(&line, " Z1:");
     AppendAvailableStatus(&line, data->zdt_gen1_available,
         data->zdt_gen1_online);

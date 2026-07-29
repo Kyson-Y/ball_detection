@@ -203,9 +203,9 @@ bool SYSCFG_DL_SYSCTL_SYSPLL_init(void);
 #define GPIO_ESP_LINK_UART_IOMUX_TX                              (IOMUX_PINCM32)
 #define GPIO_ESP_LINK_UART_IOMUX_RX_FUNC               IOMUX_PINCM33_PF_UART2_RX
 #define GPIO_ESP_LINK_UART_IOMUX_TX_FUNC               IOMUX_PINCM32_PF_UART2_TX
-#define ESP_LINK_UART_BAUD_RATE                                         (230400)
-#define ESP_LINK_UART_IBRD_40_MHZ_230400_BAUD                               (10)
-#define ESP_LINK_UART_FBRD_40_MHZ_230400_BAUD                               (54)
+#define ESP_LINK_UART_BAUD_RATE                                         (115200)
+#define ESP_LINK_UART_IBRD_40_MHZ_115200_BAUD                               (21)
+#define ESP_LINK_UART_FBRD_40_MHZ_115200_BAUD                               (45)
 /* Defines for ZDT_GEN2_UART */
 #define ZDT_GEN2_UART_INST                                                 UART3
 #define ZDT_GEN2_UART_INST_FREQUENCY                                    80000000

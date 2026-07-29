@@ -1,7 +1,10 @@
-<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
 <Project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="project_projx.xsd">
+
   <SchemaVersion>2.1</SchemaVersion>
+
   <Header>### uVision Project, (C) Keil Software</Header>
+
   <Targets>
     <Target>
       <TargetName>ECHO</TargetName>
@@ -437,6 +440,11 @@
               <FilePath>..\module\device\zdt_stepper.c</FilePath>
             </File>
             <File>
+              <FileName>ball_vision.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\module\device\ball_vision.c</FilePath>
+            </File>
+            <File>
               <FileName>system_task.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\app\tasks\system_task.c</FilePath>
@@ -492,6 +500,11 @@
               <FilePath>..\module\service\h_mission_service.c</FilePath>
             </File>
             <File>
+              <FileName>ball_balance_service.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\module\service\ball_balance_service.c</FilePath>
+            </File>
+            <File>
               <FileName>competition_storage.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\module\service\competition_storage.c</FilePath>
@@ -530,6 +543,11 @@
               <FileName>distance_controller.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\module\control\distance_controller.c</FilePath>
+            </File>
+            <File>
+              <FileName>ball_position_controller.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\module\control\ball_position_controller.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -641,11 +659,13 @@
       </Groups>
     </Target>
   </Targets>
+
   <RTE>
-    <apis />
-    <components />
-    <files />
+    <apis/>
+    <components/>
+    <files/>
   </RTE>
+
   <LayerInfo>
     <Layers>
       <Layer>
@@ -654,4 +674,5 @@
       </Layer>
     </Layers>
   </LayerInfo>
+
 </Project>

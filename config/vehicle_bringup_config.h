@@ -4,6 +4,8 @@
 /* Formal installed-hardware baseline for the assembled 513X chassis. */
 #define ECHO_ENABLE_REFLECTANCE 1U
 #define ECHO_ENABLE_TFMINI      0U
+#define ECHO_ENABLE_BALL_VISION 1U
+#define ECHO_BALL_VISION_USE_UART2 1U
 #define ECHO_ENABLE_ESP_LINK    1U
 #define ECHO_ENABLE_OLED        1U
 #define ECHO_ENABLE_IMU         1U

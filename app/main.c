@@ -9,6 +9,8 @@
 #include "bsp_tfmini_uart.h"
 #include "bsp_time.h"
 #include "attitude_estimator.h"
+#include "ball_balance_service.h"
+#include "ball_vision.h"
 #include "chassis_actuator.h"
 #include "command_service.h"
 #include "competition_service.h"
@@ -40,7 +42,9 @@ int main(void)
     BSP_Buttons_Init();
 #if ECHO_ENABLE_ESP_LINK
     BSP_EspUart_Init();
+#if !ECHO_BALL_VISION_USE_UART2
     EspUartLinkTest_Init();
+#endif
 #endif
     BSP_Encoder_Init();
 #if ECHO_ENABLE_REFLECTANCE
@@ -58,7 +62,17 @@ int main(void)
 #if TFMINI_S_ENABLE_UART_TO_I2C_MIGRATION
     BSP_TfminiUart_Init();
 #endif
+#if ECHO_ENABLE_BALL_VISION
+#if !ECHO_BALL_VISION_USE_UART2
+#if TFMINI_S_ENABLE_UART_TO_I2C_MIGRATION
+#error "Ball vision and TFmini UART migration cannot share UART1."
+#endif
+    BSP_TfminiUart_Init();
+#endif
+    BallVision_Init();
+#endif
     ZdtStepper_Init();
+    BallBalanceService_Init();
     SerialTx_Init();
     SerialRx_Init();
     ParameterService_Init();

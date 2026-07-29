@@ -613,11 +613,11 @@ SYSCONFIG_WEAK void SYSCFG_DL_ESP_LINK_UART_init(void)
     DL_UART_Main_init(ESP_LINK_UART_INST, (DL_UART_Main_Config *) &gESP_LINK_UARTConfig);
     /*
      * Configure baud rate by setting oversampling and baud rate divisors.
-     *  Target baud rate: 230400
-     *  Actual baud rate: 230547.55
+     *  Target baud rate: 115200
+     *  Actual baud rate: 115190.78
      */
     DL_UART_Main_setOversampling(ESP_LINK_UART_INST, DL_UART_OVERSAMPLING_RATE_16X);
-    DL_UART_Main_setBaudRateDivisor(ESP_LINK_UART_INST, ESP_LINK_UART_IBRD_40_MHZ_230400_BAUD, ESP_LINK_UART_FBRD_40_MHZ_230400_BAUD);
+    DL_UART_Main_setBaudRateDivisor(ESP_LINK_UART_INST, ESP_LINK_UART_IBRD_40_MHZ_115200_BAUD, ESP_LINK_UART_FBRD_40_MHZ_115200_BAUD);
 
 
     /* Configure Interrupts */

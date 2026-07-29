@@ -13,6 +13,7 @@ config/local_paths.ps1
 *.i
 *.d
 *.o
+*.obj
 *.axf
 *.hex
 *.lib
@@ -22,6 +23,7 @@ config/local_paths.ps1
 
 # Generated diagnostics and temporary files
 __pycache__/
+tmp/
 platform/generated/Event.dot
 tests/artifacts/
 *.log

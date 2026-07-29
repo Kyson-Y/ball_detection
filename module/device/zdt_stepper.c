@@ -640,6 +640,15 @@ void ZdtStepper_Service(uint32_t now_us)
     uint32_t axis;
     bool shutdown_complete = true;
 
+    if (s_diagnostic_scan_request == 1U) {
+        ZdtStepper_ResetDiscoveryState();
+        s_diagnostic_scan_active = true;
+        s_diagnostic_scan_request = 0U;
+    } else if (s_diagnostic_scan_request == 2U) {
+        s_diagnostic_scan_active = false;
+        s_diagnostic_scan_request = 0U;
+    }
+
     for (axis = 0U; axis < ZDT_STEPPER_AXIS_COUNT; axis++) {
         ZdtStepper_ServiceAxis((zdt_stepper_axis_t) axis, now_us);
         if ((s_state[axis].shutdown_state !=
@@ -661,15 +670,6 @@ void ZdtStepper_Service(uint32_t now_us)
 static void ZdtStepper_ResetDiscoveryState(void)
 {
     uint32_t axis;
-
-    if (s_diagnostic_scan_request == 1U) {
-        ZdtStepper_ResetDiscoveryState();
-        s_diagnostic_scan_active = true;
-        s_diagnostic_scan_request = 0U;
-    } else if (s_diagnostic_scan_request == 2U) {
-        s_diagnostic_scan_active = false;
-        s_diagnostic_scan_request = 0U;
-    }
 
     for (axis = 0U; axis < ZDT_STEPPER_AXIS_COUNT; axis++) {
         s_state[axis].shutdown_state = (uint8_t) ZDT_SHUTDOWN_NONE;

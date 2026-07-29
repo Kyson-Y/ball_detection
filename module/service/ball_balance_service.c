@@ -1,0 +1,525 @@
+#include "ball_balance_service.h"
+
+#include <limits.h>
+#include <stddef.h>
+#include <string.h>
+
+#include "FreeRTOS.h"
+#include "ball_position_controller.h"
+#include "ball_vision.h"
+#include "h_ball_control_config.h"
+#include "task.h"
+#include "zdt_stepper.h"
+
+#define BALL_BALANCE_LEVELING_TIMEOUT_US 400000U
+#define BALL_BALANCE_LEVEL_TOLERANCE_MILLIDEGREES 500
+#define BALL_BALANCE_ENABLE_RETRY_US 100000U
+
+static ball_position_controller_t s_controller;
+static uint32_t s_run_start_us;
+static uint32_t s_state_start_us;
+static uint32_t s_last_command_us;
+static uint32_t s_last_control_update_us;
+static uint32_t s_last_enable_request_us;
+static uint32_t s_last_valid_vision_us;
+static uint32_t s_settle_start_us;
+static uint32_t s_last_vision_update_sequence;
+static uint8_t s_motor_center_valid;
+
+volatile ball_balance_diagnostics_t g_ball_balance_diag;
+
+static int32_t BallBalance_AbsI32(int32_t value)
+{
+    return value < 0 ? -value : value;
+}
+
+static int16_t BallBalance_ClampI16(int32_t value)
+{
+    if (value > INT16_MAX) {
+        return INT16_MAX;
+    }
+    if (value < INT16_MIN) {
+        return INT16_MIN;
+    }
+    return (int16_t) value;
+}
+
+static void BallBalance_UpdateIdleVisionDiagnostics(uint32_t now_us)
+{
+    ball_vision_snapshot_t vision;
+    uint32_t age_ms;
+
+    if (!BallVision_GetSnapshot(now_us, &vision)) {
+        return;
+    }
+
+    g_ball_balance_diag.snapshot.measured_position_decimm =
+        vision.position_decimm;
+    g_ball_balance_diag.snapshot.velocity_mm_s = vision.velocity_mm_s;
+    g_ball_balance_diag.snapshot.vision_sequence = vision.packet_sequence;
+    g_ball_balance_diag.snapshot.vision_flags = vision.flags;
+    g_ball_balance_diag.snapshot.vision_valid =
+        (vision.online != 0U && vision.control_valid != 0U) ? 1U : 0U;
+    age_ms = vision.receive_age_us / 1000U;
+    g_ball_balance_diag.snapshot.vision_valid_age_ms =
+        age_ms > UINT16_MAX ? UINT16_MAX : (uint16_t) age_ms;
+}
+
+static void BallBalance_SetState(ball_balance_state_t state,
+    uint32_t now_us)
+{
+    g_ball_balance_diag.snapshot.state = (uint8_t) state;
+    s_state_start_us = now_us;
+    g_ball_balance_diag.snapshot.update_sequence++;
+}
+
+static void BallBalance_SetMissionStatus(
+    ball_balance_mission_status_t status)
+{
+    g_ball_balance_diag.snapshot.mission_status = (uint8_t) status;
+    g_ball_balance_diag.snapshot.update_sequence++;
+}
+
+static void BallBalance_DeselectMotor(void)
+{
+    if (g_zdt_stepper_diag.backend_selected != 0U) {
+        ZdtStepper_DeselectBackupBackend();
+    }
+}
+
+static void BallBalance_LatchFault(ball_balance_fault_t fault)
+{
+    if (g_ball_balance_diag.snapshot.fault ==
+            (uint8_t) BALL_BALANCE_FAULT_NONE) {
+        g_ball_balance_diag.snapshot.fault = (uint8_t) fault;
+        g_ball_balance_diag.snapshot.fault_count++;
+    }
+}
+
+static void BallBalance_FinishFault(ball_balance_fault_t fault,
+    uint32_t now_us)
+{
+    BallBalance_LatchFault(fault);
+    BallBalance_DeselectMotor();
+    BallBalance_SetMissionStatus(BALL_BALANCE_MISSION_FAULT);
+    BallBalance_SetState(BALL_BALANCE_STATE_FAULT, now_us);
+}
+
+static void BallBalance_BeginLevelingFault(ball_balance_fault_t fault,
+    uint32_t now_us)
+{
+    zdt_stepper_request_status_t status;
+
+    BallBalance_LatchFault(fault);
+    BallBalance_SetMissionStatus(BALL_BALANCE_MISSION_FAULT);
+    if (s_motor_center_valid == 0U ||
+        g_zdt_stepper_diag.axis[ZDT_STEPPER_AXIS_GEN2].online == 0U) {
+        BallBalance_FinishFault(fault, now_us);
+        return;
+    }
+    status = ZdtStepper_RequestPositionWithInterrupt(
+        ZDT_STEPPER_AXIS_GEN2,
+        g_ball_balance_diag.snapshot.motor_center_millidegrees,
+        H_BALL_MOTOR_SPEED_RPM,
+        H_BALL_MOTOR_ACCELERATION_RPM_S,
+        ZDT_POSITION_ABSOLUTE, true);
+    if (status == ZDT_STEPPER_REQUEST_ACCEPTED ||
+        status == ZDT_STEPPER_REQUEST_DUPLICATE ||
+        status == ZDT_STEPPER_REQUEST_BUSY) {
+        if (status != ZDT_STEPPER_REQUEST_BUSY) {
+            g_ball_balance_diag.snapshot.accepted_command_count++;
+        } else {
+            g_ball_balance_diag.snapshot.rejected_command_count++;
+        }
+        BallBalance_SetState(BALL_BALANCE_STATE_LEVELING_FAULT, now_us);
+    } else {
+        g_ball_balance_diag.snapshot.rejected_command_count++;
+        BallBalance_FinishFault(fault, now_us);
+    }
+}
+
+static bool BallBalance_VisionStartReady(uint32_t now_us,
+    ball_vision_snapshot_t *vision)
+{
+    if (!BallVision_GetSnapshot(now_us, vision) ||
+        vision->online == 0U || vision->control_valid == 0U ||
+        BallBalance_AbsI32(vision->position_decimm) >
+            H_BALL_H3_START_POSITION_LIMIT_DECIMM ||
+        BallBalance_AbsI32(vision->velocity_mm_s) >
+            H_BALL_H3_START_VELOCITY_LIMIT_MM_S) {
+        return false;
+    }
+    return true;
+}
+
+static void BallBalance_StartH3(uint32_t now_us)
+{
+    ball_vision_snapshot_t vision;
+    zdt_stepper_request_status_t status;
+
+    g_ball_balance_diag.start_requested = 0U;
+    if (!BallBalance_VisionStartReady(now_us, &vision) ||
+        !ZdtStepper_SelectBackupBackend()) {
+        BallBalance_FinishFault(BALL_BALANCE_FAULT_START_REJECTED,
+            now_us);
+        return;
+    }
+    status = ZdtStepper_RequestEnable(ZDT_STEPPER_AXIS_GEN2, true);
+    if (status != ZDT_STEPPER_REQUEST_ACCEPTED &&
+        status != ZDT_STEPPER_REQUEST_DUPLICATE) {
+        BallBalance_FinishFault(BALL_BALANCE_FAULT_MOTOR_BACKEND,
+            now_us);
+        return;
+    }
+
+    BallPositionController_Reset(&s_controller);
+    s_run_start_us = now_us;
+    s_last_command_us = now_us - H_BALL_COMMAND_PERIOD_US;
+    s_last_control_update_us = now_us;
+    s_last_enable_request_us = now_us;
+    s_last_valid_vision_us = now_us;
+    s_settle_start_us = 0U;
+    s_last_vision_update_sequence = vision.update_sequence;
+    s_motor_center_valid = 0U;
+    g_ball_balance_diag.snapshot.fault = BALL_BALANCE_FAULT_NONE;
+    g_ball_balance_diag.snapshot.target_position_decimm =
+        H_BALL_H3_POSITIVE_TARGET_DECIMM;
+    g_ball_balance_diag.snapshot.measured_position_decimm =
+        vision.position_decimm;
+    g_ball_balance_diag.snapshot.velocity_mm_s = vision.velocity_mm_s;
+    g_ball_balance_diag.snapshot.vision_sequence = vision.packet_sequence;
+    g_ball_balance_diag.snapshot.vision_flags = vision.flags;
+    g_ball_balance_diag.snapshot.vision_valid = 1U;
+    g_ball_balance_diag.start_count++;
+    BallBalance_SetMissionStatus(BALL_BALANCE_MISSION_RUNNING);
+    BallBalance_SetState(BALL_BALANCE_STATE_STARTING, now_us);
+}
+
+static bool BallBalance_SendMotorTarget(int32_t control_output)
+{
+    int32_t target = g_ball_balance_diag.snapshot.motor_center_millidegrees +
+        H_BALL_MOTOR_POLARITY * control_output;
+    zdt_stepper_request_status_t status =
+        ZdtStepper_RequestPositionWithInterrupt(
+            ZDT_STEPPER_AXIS_GEN2, target,
+            H_BALL_MOTOR_SPEED_RPM,
+            H_BALL_MOTOR_ACCELERATION_RPM_S,
+            ZDT_POSITION_ABSOLUTE, true);
+
+    g_ball_balance_diag.snapshot.motor_target_millidegrees = target;
+    if (status == ZDT_STEPPER_REQUEST_ACCEPTED ||
+        status == ZDT_STEPPER_REQUEST_DUPLICATE) {
+        g_ball_balance_diag.snapshot.accepted_command_count++;
+        return true;
+    }
+    g_ball_balance_diag.snapshot.rejected_command_count++;
+    return status == ZDT_STEPPER_REQUEST_BUSY;
+}
+
+static void BallBalance_UpdatePhase(const ball_vision_snapshot_t *vision,
+    uint32_t now_us)
+{
+    int16_t error = (int16_t) (
+        g_ball_balance_diag.snapshot.target_position_decimm -
+        vision->position_decimm);
+
+    g_ball_balance_diag.snapshot.position_error_decimm = error;
+    if (g_ball_balance_diag.snapshot.state ==
+            (uint8_t) BALL_BALANCE_STATE_MOVE_POSITIVE &&
+        vision->position_decimm >= H_BALL_H3_POSITIVE_REACHED_DECIMM) {
+        g_ball_balance_diag.snapshot.target_position_decimm =
+            H_BALL_H3_NEGATIVE_TARGET_DECIMM;
+        s_settle_start_us = 0U;
+        BallBalance_SetState(BALL_BALANCE_STATE_MOVE_NEGATIVE, now_us);
+    } else if (g_ball_balance_diag.snapshot.state ==
+            (uint8_t) BALL_BALANCE_STATE_MOVE_NEGATIVE) {
+        error = (int16_t) (
+            H_BALL_H3_NEGATIVE_TARGET_DECIMM - vision->position_decimm);
+        if (BallBalance_AbsI32(error) <=
+                H_BALL_H3_FINAL_TOLERANCE_DECIMM &&
+            BallBalance_AbsI32(vision->velocity_mm_s) <=
+                H_BALL_H3_FINAL_VELOCITY_MM_S) {
+            if (s_settle_start_us == 0U) {
+                s_settle_start_us = now_us;
+            }
+            g_ball_balance_diag.snapshot.settle_ms = (uint16_t) (
+                (uint32_t) (now_us - s_settle_start_us) / 1000U);
+            if ((uint32_t) (now_us - s_settle_start_us) >=
+                    H_BALL_H3_FINAL_SETTLE_US) {
+                g_ball_balance_diag.complete_count++;
+                BallBalance_SetMissionStatus(
+                    BALL_BALANCE_MISSION_COMPLETE);
+                BallBalance_SetState(
+                    BALL_BALANCE_STATE_HOLD_COMPLETE, now_us);
+            }
+        } else {
+            s_settle_start_us = 0U;
+            g_ball_balance_diag.snapshot.settle_ms = 0U;
+        }
+    }
+}
+
+static void BallBalance_ServiceClosedLoop(uint32_t now_us)
+{
+    ball_vision_snapshot_t vision;
+    bool snapshot_ok = BallVision_GetSnapshot(now_us, &vision);
+
+    if (snapshot_ok && vision.online != 0U &&
+        vision.control_valid != 0U) {
+        if (vision.update_sequence != s_last_vision_update_sequence) {
+            float dt_s = (float) (uint32_t) (
+                now_us - s_last_control_update_us) * 0.000001f;
+            int32_t output;
+
+            s_last_vision_update_sequence = vision.update_sequence;
+            s_last_valid_vision_us = now_us;
+            s_last_control_update_us = now_us;
+            g_ball_balance_diag.snapshot.vision_valid = 1U;
+            g_ball_balance_diag.snapshot.vision_valid_age_ms = 0U;
+            g_ball_balance_diag.snapshot.measured_position_decimm =
+                vision.position_decimm;
+            g_ball_balance_diag.snapshot.velocity_mm_s =
+                vision.velocity_mm_s;
+            g_ball_balance_diag.snapshot.vision_sequence =
+                vision.packet_sequence;
+            g_ball_balance_diag.snapshot.vision_flags = vision.flags;
+            output = BallPositionController_Update(&s_controller,
+                (float) g_ball_balance_diag.snapshot.target_position_decimm *
+                    0.1f,
+                (float) vision.position_decimm * 0.1f,
+                (float) vision.velocity_mm_s, dt_s);
+            g_ball_balance_diag.snapshot.control_output_millidegrees = output;
+            g_ball_balance_diag.snapshot.saturated = s_controller.saturated;
+            if ((uint32_t) (now_us - s_last_command_us) >=
+                    H_BALL_COMMAND_PERIOD_US) {
+                if (!BallBalance_SendMotorTarget(output)) {
+                    BallBalance_BeginLevelingFault(
+                        BALL_BALANCE_FAULT_MOTOR_COMMAND, now_us);
+                    return;
+                }
+                s_last_command_us = now_us;
+            }
+            BallBalance_UpdatePhase(&vision, now_us);
+        } else {
+            uint32_t valid_age_us =
+                (uint32_t) (now_us - s_last_valid_vision_us);
+
+            g_ball_balance_diag.snapshot.vision_valid_age_ms =
+                valid_age_us / 1000U > UINT16_MAX ? UINT16_MAX :
+                    (uint16_t) (valid_age_us / 1000U);
+            if (valid_age_us > H_BALL_VISION_HOLD_US) {
+                g_ball_balance_diag.snapshot.vision_valid = 0U;
+                g_ball_balance_diag.snapshot.vision_invalid_count++;
+                BallBalance_BeginLevelingFault(
+                    BALL_BALANCE_FAULT_VISION_TIMEOUT, now_us);
+                return;
+            }
+        }
+    } else {
+        uint32_t invalid_age_us =
+            (uint32_t) (now_us - s_last_valid_vision_us);
+
+        g_ball_balance_diag.snapshot.vision_valid = 0U;
+        g_ball_balance_diag.snapshot.vision_invalid_count++;
+        g_ball_balance_diag.snapshot.vision_valid_age_ms =
+            invalid_age_us / 1000U > UINT16_MAX ? UINT16_MAX :
+                (uint16_t) (invalid_age_us / 1000U);
+        if (invalid_age_us > H_BALL_VISION_HOLD_US) {
+            BallBalance_BeginLevelingFault(snapshot_ok &&
+                    vision.online != 0U ?
+                BALL_BALANCE_FAULT_VISION_INVALID :
+                BALL_BALANCE_FAULT_VISION_TIMEOUT, now_us);
+            return;
+        }
+    }
+
+    if (H_BALL_H3_TIMEOUT_US != 0U &&
+        g_ball_balance_diag.snapshot.state !=
+            (uint8_t) BALL_BALANCE_STATE_HOLD_COMPLETE &&
+        (uint32_t) (now_us - s_run_start_us) >= H_BALL_H3_TIMEOUT_US) {
+        BallBalance_BeginLevelingFault(BALL_BALANCE_FAULT_H3_TIMEOUT,
+            now_us);
+    }
+}
+
+void BallBalanceService_Init(void)
+{
+    const ball_position_controller_config_t config = {
+        H_BALL_KP_MILLIDEGREES_PER_MM,
+        H_BALL_KD_MILLIDEGREES_PER_MM_S,
+        H_BALL_MAXIMUM_OUTPUT_MILLIDEGREES,
+        H_BALL_MAXIMUM_SLEW_MILLIDEGREES_PER_S
+    };
+
+    memset((void *) &g_ball_balance_diag, 0,
+        sizeof(g_ball_balance_diag));
+    (void) BallPositionController_Init(&s_controller, &config);
+    g_ball_balance_diag.snapshot.state = BALL_BALANCE_STATE_IDLE;
+    g_ball_balance_diag.snapshot.mission_status =
+        BALL_BALANCE_MISSION_IDLE;
+    g_ball_balance_diag.initialized = 1U;
+}
+
+void BallBalanceService_Service(uint32_t now_us)
+{
+    const volatile zdt_stepper_axis_diagnostics_t *motor =
+        &g_zdt_stepper_diag.axis[ZDT_STEPPER_AXIS_GEN2];
+    uint8_t state;
+
+    if (g_ball_balance_diag.initialized == 0U) {
+        return;
+    }
+    if (g_ball_balance_diag.abort_requested != 0U) {
+        g_ball_balance_diag.abort_requested = 0U;
+        g_ball_balance_diag.start_requested = 0U;
+        g_ball_balance_diag.abort_count++;
+        BallBalance_DeselectMotor();
+        BallBalance_SetMissionStatus(BALL_BALANCE_MISSION_IDLE);
+        BallBalance_SetState(BALL_BALANCE_STATE_STOPPING, now_us);
+    }
+    if (g_ball_balance_diag.start_requested != 0U) {
+        BallBalance_StartH3(now_us);
+    }
+
+    state = g_ball_balance_diag.snapshot.state;
+    if (state == (uint8_t) BALL_BALANCE_STATE_IDLE ||
+        state == (uint8_t) BALL_BALANCE_STATE_FAULT) {
+        BallBalance_UpdateIdleVisionDiagnostics(now_us);
+    }
+    g_ball_balance_diag.snapshot.motor_online = motor->online;
+    g_ball_balance_diag.snapshot.motor_enabled = motor->enabled;
+    g_ball_balance_diag.snapshot.motor_actual_millidegrees =
+        motor->position_millidegrees;
+    g_ball_balance_diag.snapshot.motor_error_millidegrees =
+        motor->position_error_millidegrees;
+    if (state != (uint8_t) BALL_BALANCE_STATE_IDLE &&
+        state != (uint8_t) BALL_BALANCE_STATE_FAULT) {
+        g_ball_balance_diag.snapshot.elapsed_ms =
+            (uint32_t) (now_us - s_run_start_us) / 1000U;
+    }
+
+    if (state == (uint8_t) BALL_BALANCE_STATE_STARTING) {
+        if (motor->online != 0U && motor->system_status_valid != 0U &&
+            motor->enabled != 0U) {
+            g_ball_balance_diag.snapshot.motor_center_millidegrees =
+                motor->position_millidegrees;
+            g_ball_balance_diag.snapshot.motor_target_millidegrees =
+                motor->position_millidegrees;
+            s_motor_center_valid = 1U;
+            BallBalance_SetState(
+                BALL_BALANCE_STATE_MOVE_POSITIVE, now_us);
+        } else if ((uint32_t) (now_us - s_last_enable_request_us) >=
+                BALL_BALANCE_ENABLE_RETRY_US) {
+            zdt_stepper_request_status_t request =
+                ZdtStepper_RequestEnable(ZDT_STEPPER_AXIS_GEN2, true);
+
+            s_last_enable_request_us = now_us;
+            if (request != ZDT_STEPPER_REQUEST_ACCEPTED &&
+                request != ZDT_STEPPER_REQUEST_DUPLICATE &&
+                request != ZDT_STEPPER_REQUEST_BUSY) {
+                BallBalance_FinishFault(
+                    BALL_BALANCE_FAULT_MOTOR_BACKEND, now_us);
+                return;
+            }
+        }
+        if ((uint32_t) (now_us - s_state_start_us) >=
+                H_BALL_STARTUP_TIMEOUT_US) {
+            BallBalance_FinishFault(BALL_BALANCE_FAULT_MOTOR_OFFLINE,
+                now_us);
+        }
+    } else if (state == (uint8_t) BALL_BALANCE_STATE_MOVE_POSITIVE ||
+        state == (uint8_t) BALL_BALANCE_STATE_MOVE_NEGATIVE ||
+        state == (uint8_t) BALL_BALANCE_STATE_HOLD_COMPLETE) {
+        if (motor->online == 0U || motor->enabled == 0U) {
+            BallBalance_FinishFault(BALL_BALANCE_FAULT_MOTOR_OFFLINE,
+                now_us);
+            return;
+        }
+        BallBalance_ServiceClosedLoop(now_us);
+    } else if (state == (uint8_t) BALL_BALANCE_STATE_LEVELING_FAULT) {
+        if (motor->online != 0U &&
+            BallBalance_AbsI32(motor->position_millidegrees -
+                g_ball_balance_diag.snapshot.motor_center_millidegrees) >
+                BALL_BALANCE_LEVEL_TOLERANCE_MILLIDEGREES &&
+            (uint32_t) (now_us - s_last_command_us) >=
+                H_BALL_COMMAND_PERIOD_US) {
+            zdt_stepper_request_status_t request =
+                ZdtStepper_RequestPositionWithInterrupt(
+                    ZDT_STEPPER_AXIS_GEN2,
+                    g_ball_balance_diag.snapshot.motor_center_millidegrees,
+                    H_BALL_MOTOR_SPEED_RPM,
+                    H_BALL_MOTOR_ACCELERATION_RPM_S,
+                    ZDT_POSITION_ABSOLUTE, true);
+
+            s_last_command_us = now_us;
+            if (request == ZDT_STEPPER_REQUEST_ACCEPTED ||
+                request == ZDT_STEPPER_REQUEST_DUPLICATE) {
+                g_ball_balance_diag.snapshot.accepted_command_count++;
+            } else {
+                g_ball_balance_diag.snapshot.rejected_command_count++;
+            }
+        }
+        if (motor->online == 0U ||
+            BallBalance_AbsI32(motor->position_millidegrees -
+                g_ball_balance_diag.snapshot.motor_center_millidegrees) <=
+                BALL_BALANCE_LEVEL_TOLERANCE_MILLIDEGREES ||
+            (uint32_t) (now_us - s_state_start_us) >=
+                BALL_BALANCE_LEVELING_TIMEOUT_US) {
+            BallBalance_DeselectMotor();
+            BallBalance_SetState(BALL_BALANCE_STATE_FAULT, now_us);
+        }
+    } else if (state == (uint8_t) BALL_BALANCE_STATE_STOPPING &&
+        g_zdt_stepper_diag.shutdown_pending == 0U) {
+        BallBalance_SetState(BALL_BALANCE_STATE_IDLE, now_us);
+    }
+    g_ball_balance_diag.snapshot.update_sequence++;
+}
+
+bool BallBalanceService_CanStartH3(uint32_t now_us)
+{
+    ball_vision_snapshot_t vision;
+    uint8_t state = g_ball_balance_diag.snapshot.state;
+
+    return g_ball_balance_diag.initialized != 0U &&
+        (state == (uint8_t) BALL_BALANCE_STATE_IDLE ||
+         state == (uint8_t) BALL_BALANCE_STATE_FAULT) &&
+        g_zdt_stepper_diag.shutdown_pending == 0U &&
+        BallBalance_VisionStartReady(now_us, &vision);
+}
+
+bool BallBalanceService_RequestStartH3(void)
+{
+    if (g_ball_balance_diag.initialized == 0U ||
+        g_ball_balance_diag.start_requested != 0U) {
+        return false;
+    }
+    g_ball_balance_diag.start_requested = 1U;
+    return true;
+}
+
+void BallBalanceService_RequestAbort(void)
+{
+    if (g_ball_balance_diag.initialized != 0U) {
+        g_ball_balance_diag.abort_requested = 1U;
+    }
+}
+
+ball_balance_mission_status_t BallBalanceService_GetMissionStatus(void)
+{
+    if (g_ball_balance_diag.start_requested != 0U) {
+        return BALL_BALANCE_MISSION_RUNNING;
+    }
+    return (ball_balance_mission_status_t)
+        g_ball_balance_diag.snapshot.mission_status;
+}
+
+bool BallBalanceService_GetSnapshot(ball_balance_snapshot_t *snapshot)
+{
+    if (snapshot == NULL || g_ball_balance_diag.initialized == 0U) {
+        return false;
+    }
+    taskENTER_CRITICAL();
+    *snapshot = g_ball_balance_diag.snapshot;
+    taskEXIT_CRITICAL();
+    return true;
+}

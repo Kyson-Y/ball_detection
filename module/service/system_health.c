@@ -8,6 +8,7 @@
 #include "bsp_i2c.h"
 #include "bsp_reset.h"
 #include "bsp_time.h"
+#include "ball_vision.h"
 #include "chassis_actuator.h"
 #include "command_service.h"
 #include "imu_service.h"
@@ -19,6 +20,7 @@
 #include "ssd1306.h"
 #include "task.h"
 #include "telemetry.h"
+#include "vehicle_bringup_config.h"
 
 #define SYSTEM_HEALTH_CONTROL_STALE_TICKS   pdMS_TO_TICKS(50U)
 #define SYSTEM_HEALTH_TELEMETRY_STALE_TICKS pdMS_TO_TICKS(250U)
@@ -26,6 +28,7 @@
 #define SYSTEM_HEALTH_DISPLAY_STARTUP_GRACE_TICKS pdMS_TO_TICKS(2000U)
 #define SYSTEM_HEALTH_IMU_STARTUP_GRACE_TICKS pdMS_TO_TICKS(2000U)
 #define SYSTEM_HEALTH_IMU_STALE_TICKS       pdMS_TO_TICKS(100U)
+#define SYSTEM_HEALTH_BALL_VISION_STARTUP_GRACE_TICKS pdMS_TO_TICKS(2000U)
 #define SYSTEM_HEALTH_EVENT_HOLD_TICKS      pdMS_TO_TICKS(2000U)
 #define SYSTEM_HEALTH_STACK_WARN_WORDS      64U
 #define SYSTEM_HEALTH_STACK_FAULT_WORDS     32U
@@ -131,7 +134,11 @@ static const system_health_issue_descriptor_t s_issue_descriptors[] = {
     { SYSTEM_HEALTH_ISSUE_IMU_STALE,
       SYSTEM_HEALTH_SOURCE_SENSOR, SYSTEM_HEALTH_DEGRADED,
       SYSTEM_HEALTH_IMU_STALE_TICKS, "ticks", "IMU STALE",
-      "inspect ServiceTask timing and I2C errors", 1U }
+      "inspect ServiceTask timing and I2C errors", 1U },
+    { SYSTEM_HEALTH_ISSUE_BALL_VISION_OFFLINE,
+      SYSTEM_HEALTH_SOURCE_SENSOR, SYSTEM_HEALTH_DEGRADED,
+      SYSTEM_HEALTH_BALL_VISION_STARTUP_GRACE_TICKS, "ticks", "VISION OFF",
+      "inspect MaixCAM UART2 power, TX/RX and calibration app", 1U }
 };
 
 volatile system_health_snapshot_t g_system_health_snapshot;
@@ -492,6 +499,17 @@ static uint32_t SystemHealth_BuildActiveMask(
             SYSTEM_HEALTH_IMU_STALE_TICKS)) {
         SystemHealth_AddIssue(&mask, SYSTEM_HEALTH_ISSUE_IMU_STALE);
     }
+#if ECHO_ENABLE_BALL_VISION
+    if (now > SYSTEM_HEALTH_BALL_VISION_STARTUP_GRACE_TICKS) {
+        ball_vision_snapshot_t vision;
+
+        if (!BallVision_GetSnapshot(BSP_Time_GetUs(), &vision) ||
+            vision.online == 0U) {
+            SystemHealth_AddIssue(&mask,
+                SYSTEM_HEALTH_ISSUE_BALL_VISION_OFFLINE);
+        }
+    }
+#endif
 
     if (SystemHealth_EventIsActive(
             SYSTEM_HEALTH_ISSUE_CONTROL_DEADLINE, now)) {

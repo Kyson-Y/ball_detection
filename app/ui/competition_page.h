@@ -49,6 +49,9 @@ typedef struct {
     uint8_t esp_ready;
     uint8_t lidar_available;
     uint8_t lidar_online;
+    uint8_t vision_available;
+    uint8_t vision_online;
+    uint8_t vision_valid;
     uint8_t zdt_gen1_online;
     uint8_t zdt_gen2_online;
     uint8_t zdt_gen1_available;

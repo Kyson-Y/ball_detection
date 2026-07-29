@@ -2,36 +2,63 @@
 
 ```yaml
 handoff_schema: 1
-updated_at: 2026-07-29T21:02:55+08:00
+updated_at: 2026-07-30T06:40:00+08:00
 updated_by: Codex
-status: h_task1_frozen_task3_ab_drive_planning
+status: h3_uart2_hardware_validated_vision_continuity_blocked
 ```
 
-## 当前任务：任务 1 收口，进入任务 3 的 AB 段行驶
+## 当前任务：H3 MaixCAM 钢球视觉闭环
 
-- 唯一正式仓库为 `E:\ECHO`，正式分支为 `main`，本轮开始 HEAD `dd6dc80`；任务 1 的源码、
-  测试、工具和文档正在形成正式收口提交并同步 `origin/main`。
+- 正式仓库/分支：`E:\ECHO` / `main`；本轮从 `b51fa78` 开始，用户已授权提交并推送正式远端。
+- 队友视觉 GitHub 最新提交为 `510c47c`。协议仍是 UART1 `115200 8N1`、22 字节小端序帧、
+  CRC16-CCITT-FALSE；相机请求 60 FPS，队友实测检测和 UART 约 44.4--45.2 Hz。
+- 最新视觉增加 `http://10.5.66.1:8080/status.json`。本轮新增
+  `tools/ball_vision_monitor.ps1`，可并行保存相机内部状态和 MCU type 16 摆杆遥测。
+- MCU 已通过 UART2 `PB16/RX` DMA 实现真实视觉解析、球位置 PD、H3 `O -> +50 mm -> -50 mm` 状态机、故障回水平、
+  完成保持、结果确认释放、安全急停、Health `VISION OFF` 和 DIAG `VIS` 状态。
+- 视觉最后一帧后超过 120 ms 即保护；已修复旧快照会把该时间延长到约 270 ms 的问题。
+- 视觉上游 11 项测试、type 16 固定帧以及旧 IMU/姿态/TFmini 遥测夹具通过。
+- 固件已烧录并运行；UART2 相机接收约 `33--51 Hz`、UART 错误为 0，张大头方向和
+  `+/-70 deg` 电机轴范围已实测。当前 H3 为 `Kp=120`、`Kd=10`、最大 `+/-6 deg`、
+  `12 deg/s`，调试阶段 H3 总超时关闭，视觉失效 120 ms 保护保留。
+- 空管 32 帧标定后无球误检为零，但带球测试两次出现约 100 mm 的单帧目标切换；最近一次
+  `+7.03 -> -102.06 mm` 仅 52 ms，物理上不可能。H3 5 s/1 cm 尚未通过，当前阻塞在视觉连续性。
+- 供电规则：MaixCAM 只由 USB 供电；万能板不得连接相机 5 V/3.3 V。信号为
+  `MaixCAM A16/TX -> MSPM0 PB16/UART2_RX`，并可靠共地；`A17/RX <- PB15/UART2_TX` 当前非必需。
+- 第一次硬件动作前必须确认水管水平、短曲柄不在死点、机构固定、人员在场且可立即断电。
+  先只读双端数据，再做无球低角度方向验证；不得直接放球全幅闭环。
+- 当前 H3/H4/H5/H6、UART2 和 uVision 工程改动将按用户本轮指令提交并推送；`tmp/` 仅为
+  本机遥测与烧录证据，不进入正式仓库。
+- 详细记录：`docs/worklogs/2026-07-30_h3_maixcam_ball_closed_loop.md`。
+
+## 当前任务：H4/H5/H6 无球底盘行驶
+
+- 唯一正式仓库为 `E:\ECHO`，正式分支为 `main`。任务 1 已提交为
+  `b51fa78 feat: finalize H task 1 line following` 并推送至 `origin/main`；当前 H4 改动未提交。
 - 用户已有的 `ECHO.uvmpw`、`freertos/keil/freertos_ECHO.uvprojx`、
   `keil/ECHO.uvprojx` 只有 uVision XML 格式重排，按保护规则不暂存、不覆盖。
-- 任务 1 已在正式地图完成多轮顺时针实车循迹。正式速度规划冻结为：首 250 mm 100 rpm、
-  弯道 120 rpm、直线 140 rpm、末段 75 rpm；首段导数预判 6 扫描、最大纠偏 60 rpm，
-  之后为 18 扫描和 75 rpm。现有 513X 速度 PID、前馈、电池补偿和安全门控保持不变。
-- 反射估计使用 8 路归一化强度和最近连续黑线簇，避免 C 字母形成的远端黑色区域抢占主线。
-  标定采用 Flash v3 记录掉电保存，`tools/install_reflectance_calibration.ps1` 可安装经跨度与
-  CRC 校验的记录。
-- 终点在里程/顺时针累计航向门控后识别 A 点横线：五次扫描窗口中至少两次存在连续 4 路
-  有效探头即触发 80 ms 受控 H 桥刹车。正式版本不再执行横线后的 IMU 回正或编码器前移。
-- 最后一次 `h2-v20-launch-run2` 采集为 60.7 s、11415 帧；控制 100 Hz、反射 125 Hz、
-  IMU/姿态 100 Hz，CRC/gap/out-of-order/deadline/I2C 均为 0，电池 15.589--15.686 V。
-  采集只覆盖最后 2.84 s 运动；末段 75 rpm 持续 0.62 s，目标归零后估算继续前移 26.5 mm，
-  因此不能用该文件评价起步和第一个弯道。
-- 最新 Health active mask 为 0；sticky `0x00010000` 表示历史上出现过左 QEI 非法跳变，
-  本轮没有活动故障。最新执行器输出已归零，COM18 已释放。
-- 2026-07-29 全量构建：FreeRTOS/App 均 0 Error / 0 Warning；App `Code=106760,
-  RO=3780, RW=188, ZI=24632`；HEX SHA-256
-  `BB075E80B15E396DA59986467BE4229551B999AF09C44DFB084CCADBD4BCA9AC`。
-- 五个主机遥测 fixture、相关 PowerShell AST 均通过。任务 1 到此冻结；下一步先核对 H 题
-  第三问原文，再完成要求 8 s 内通过且保持球稳定的 AB 段行驶策略。
+- PDF 原文确认：AB 是 A 到 B 的 1.5 m 直线；按键启动开始计时，要求不超过 8 s。最终正式
+  H4 还要求钢球保持 O 点 ±1 cm，但用户当前明确先做无球底盘版本，不接球姿态反馈。
+- `H_MISSION_AB_CENTER` 复用任务 1 的标定、连续黑线簇估计、丢线保护和安全门控，但使用独立
+  速度策略：20 rpm 起步，1800 ms 线性升到 110 rpm，1500 mm 请求 80 ms 受控刹车；
+  7500 ms 未完成则故障停机。
+- AB 专用导数预判为 8 扫描，最大差速纠偏 35 rpm；基础速度低于 41 rpm 时，纠偏上限按
+  `base - 6 rpm` 继续收紧，避免一侧目标被压到停转。预计无球通过时间约 4.8--5.3 s。
+- H2 任务 1 只做了公共调用参数化，其 100/120/140/75 rpm 速度表、6/18 扫描预判、
+  60/75 rpm 纠偏上限、A 点识别和 80 ms 刹车均未修改。
+- 新增 H4 诊断为 `ab_elapsed_ms`、`ab_passed`、`ab_pass_count`、`ab_timeout_count`。
+- H5 `LAP CENTER` 和 H6 `LAP HOLD` 使用相同的底盘速度轨迹：20 rpm 起步、2000 ms 线性
+  升至 80 rpm，之后整圈恒速；预计 6.14 m 用时约 23--25 s。两者当前不读取球位置，未来
+  只通过独立摆杆控制器分别选择 O 点或任意设定点。
+- H5/H6 红外导数预判为 12 扫描，最大差速纠偏 50 rpm；复用 H2 的起点横线离开确认、
+  里程/顺时针航向终点使能、五扫描 A 线确认和 80 ms 受控刹车，29000 ms 超时安全停机。
+- 当前 dirty 任务文件为 `module/service/h_mission_service.c/.h`、`docs/PROJECT_STATUS.md`、
+  `docs/handoff/CURRENT_HANDOFF.md` 和本工作日志；不得把三个 uVision 文件或 `tmp/` 暂存。
+- 最新全量构建 FreeRTOS/App 均 0 Error / 0 Warning；App `Code=107352, RO=3780,
+  RW=188, ZI=24656`；HEX SHA-256
+  `918CC8C38776EDB62F4CA7F5C01F3D41B7CA4E5E7EE0AA07E396DA92D64FDBDE`。
+- 用户明确要求不烧录，板子已断电。H4/H5/H6 均未地测，8 s、30 s 和球 ±1 cm 指标全部
+  为 `not run`。下次先烧录后做 H4 无球 AB，确认后再分别做 H5/H6 无球整圈。
 
 ## 当前任务：513X阶段收尾，下一步测试PCB上的张大头/ZDT
 

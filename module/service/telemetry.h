@@ -9,6 +9,7 @@
 #include "bsp_reflectance.h"
 #include "bsp_supply_voltage.h"
 #include "esp_uart_link_test.h"
+#include "ball_balance_service.h"
 #include "imu_service.h"
 #include "motor_profile.h"
 #include "system_health.h"
@@ -32,6 +33,7 @@
 #define TELEMETRY_FRAME_TYPE_ATTITUDE      13U
 #define TELEMETRY_FRAME_TYPE_ZDT_COMMAND   14U
 #define TELEMETRY_FRAME_TYPE_ZDT_ACK       15U
+#define TELEMETRY_FRAME_TYPE_BALL_BALANCE  16U
 #define TELEMETRY_CONTROL_PAYLOAD_BYTES   96U
 #define TELEMETRY_CONTROL_FRAME_BYTES     112U
 #define TELEMETRY_PARAMETER_ACK_PAYLOAD_BYTES 16U
@@ -55,6 +57,8 @@
 #define TELEMETRY_ZDT_AXIS_SNAPSHOT_BYTES     40U
 #define TELEMETRY_ZDT_ACK_PAYLOAD_BYTES      156U
 #define TELEMETRY_ZDT_ACK_FRAME_BYTES        172U
+#define TELEMETRY_BALL_BALANCE_PAYLOAD_BYTES 64U
+#define TELEMETRY_BALL_BALANCE_FRAME_BYTES   80U
 #define TELEMETRY_HEALTH_PAYLOAD_BYTES    116U
 #define TELEMETRY_HEALTH_FRAME_BYTES      132U
 #define TELEMETRY_MAX_FRAME_BYTES         TELEMETRY_ZDT_ACK_FRAME_BYTES
@@ -206,6 +210,9 @@ typedef struct {
     uint32_t attitude_attempt_count;
     uint32_t attitude_accepted_count;
     uint32_t attitude_dropped_count;
+    uint32_t ball_balance_attempt_count;
+    uint32_t ball_balance_accepted_count;
+    uint32_t ball_balance_dropped_count;
     uint32_t health_attempt_count;
     uint32_t health_accepted_count;
     uint32_t health_dropped_count;
@@ -250,6 +257,8 @@ bool Telemetry_PublishEspLink(
     const esp_uart_link_test_snapshot_t *snapshot);
 bool Telemetry_PublishAttitude(
     const attitude_estimator_snapshot_t *snapshot);
+bool Telemetry_PublishBallBalance(
+    const ball_balance_snapshot_t *snapshot);
 bool Telemetry_PublishHealth(const system_health_snapshot_t *snapshot);
 
 #endif

@@ -4,6 +4,7 @@
 
 #include "FreeRTOS.h"
 #include "bsp_buttons.h"
+#include "bsp_esp_uart.h"
 #include "bsp_led.h"
 #include "bsp_i2c.h"
 #include "bsp_reflectance.h"
@@ -11,6 +12,8 @@
 #include "bsp_tfmini_uart.h"
 #include "bsp_time.h"
 #include "attitude_estimator.h"
+#include "ball_balance_service.h"
+#include "ball_vision.h"
 #include "command_service.h"
 #include "competition_service.h"
 #include "esp_uart_link_test.h"
@@ -51,6 +54,7 @@
 #define SERVICE_ATTITUDE_TELEMETRY_PERIOD pdMS_TO_TICKS(40U)
 #endif
 #define SERVICE_ESP_LINK_TELEMETRY_PERIOD pdMS_TO_TICKS(1000U)
+#define SERVICE_BALL_BALANCE_TELEMETRY_PERIOD pdMS_TO_TICKS(40U)
 #define SERVICE_TFMINI_TRANSPORT_I2C 1U
 #define SERVICE_TFMINI_TRANSPORT_MIGRATION 2U
 #define SERVICE_TFMINI_MIGRATION_MIN_VALID_FRAMES 5U
@@ -84,6 +88,7 @@ void ServiceTask_Entry(void *context)
     uint32_t last_attitude_source_sequence = 0U;
 #endif
     TickType_t last_esp_link_telemetry_time = last_wake_time;
+    TickType_t last_ball_balance_telemetry_time = last_wake_time;
 #if TFMINI_S_ENABLE_UART_TO_I2C_MIGRATION
     TickType_t last_tfmini_migration_time = last_wake_time;
 #else
@@ -103,6 +108,9 @@ void ServiceTask_Entry(void *context)
 #if TFMINI_S_ENABLE_UART_TO_I2C_MIGRATION
         uint8_t tfmini_byte;
 #endif
+#if ECHO_ENABLE_BALL_VISION
+        uint8_t ball_vision_byte;
+#endif
 
         (void) xTaskDelayUntil(&last_wake_time, SERVICE_TASK_PERIOD);
         now = xTaskGetTickCount();
@@ -112,6 +120,19 @@ void ServiceTask_Entry(void *context)
         CommandService_ProcessRx();
         now_us = BSP_Time_GetUs();
         ZdtStepper_Service(now_us);
+#if ECHO_ENABLE_BALL_VISION
+#if ECHO_BALL_VISION_USE_UART2
+        while (BSP_EspUart_TryRead(&ball_vision_byte)) {
+            BallVision_ProcessByte(ball_vision_byte, now_us);
+        }
+#else
+        while (BSP_TfminiUart_TryRead(&ball_vision_byte)) {
+            BallVision_ProcessByte(ball_vision_byte, now_us);
+        }
+#endif
+        BallVision_Update(now_us);
+#endif
+        BallBalanceService_Service(now_us);
 #if ECHO_ENABLE_OLED
         if ((TickType_t) (now - last_button_sample_time) >=
             SERVICE_BUTTON_SAMPLE_PERIOD) {
@@ -124,7 +145,7 @@ void ServiceTask_Entry(void *context)
                 (uint32_t) now);
         }
 #endif
-#if ECHO_ENABLE_ESP_LINK
+#if ECHO_ENABLE_ESP_LINK && !ECHO_BALL_VISION_USE_UART2
         EspUartLinkTest_Process(now_us);
 #endif
 #if ECHO_ENABLE_TFMINI
@@ -251,6 +272,19 @@ void ServiceTask_Entry(void *context)
             ImuService_Process(now);
         }
 #endif
+#endif
+
+#if ECHO_ENABLE_BALL_VISION
+        if ((TickType_t) (now - last_ball_balance_telemetry_time) >=
+            SERVICE_BALL_BALANCE_TELEMETRY_PERIOD) {
+            ball_balance_snapshot_t ball_balance_snapshot;
+
+            last_ball_balance_telemetry_time = now;
+            if (BallBalanceService_GetSnapshot(&ball_balance_snapshot)) {
+                (void) Telemetry_PublishBallBalance(
+                    &ball_balance_snapshot);
+            }
+        }
 #endif
 
 #if ECHO_ENABLE_IMU
