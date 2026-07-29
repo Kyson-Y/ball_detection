@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "camera": {
+    "width": 640,
+    "height": 480,
+    "fps": 30.0,
+    "buffer_count": 3,
+    "hmirror": 0,
+    "vflip": 0,
+    "warmup_frames": 10
+  },
+  "roi": {
+    "x": 0,
+    "y": 190,
+    "width": 640,
+    "height": 100,
+    "analysis_y0": 0,
+    "analysis_y1": 55
+  },
+  "alignment": {
+    "enabled": true,
+    "shift_min": -40,
+    "shift_max": 40,
+    "profile_y0": 0,
+    "profile_y1": 75,
+    "profile_x0": 60,
+    "profile_x1": 580,
+    "profile_x_step": 4,
+    "difference_cap": 40
+  },
+  "detector": {
+    "pixel_diff_threshold": 18,
+    "ball_window_px": 28,
+    "search_margin_px": 20,
+    "min_peak_response": 100,
+    "peak_mad_multiplier": 4.0,
+    "max_changed_ratio": 0.45,
+    "low_confidence_threshold": 0.2
+  },
+  "calibration": {
+    "center_x_px": 320.0,
+    "mm_per_pixel": 0.390625,
+    "position_sign": 1.0,
+    "valid": true,
+    "description": "Provisional: camera center is O; 250 mm spans 640 px"
+  },
+  "tracker": {
+    "alpha": 0.7,
+    "beta": 0.2,
+    "velocity_valid_measurements": 3,
+    "reset_after_s": 0.2
+  },
+  "uart": {
+    "device": "/dev/ttyS1",
+    "baud_rate": 115200,
+    "tx_pin": "A19",
+    "rx_pin": "A18",
+    "retry_interval_s": 2.0
+  },
+  "reference": {
+    "path": "/root/ball_detection/runtime/empty_pipe_reference.npy",
+    "capture_fps": 15.0,
+    "capture_frames": 32
+  },
+  "thermal": {
+    "path": "/sys/class/thermal/thermal_zone0/temp",
+    "check_every_frames": 30,
+    "warning_mc": 70000,
+    "stop_mc": 75000
+  },
+  "logging": {
+    "report_every_frames": 60
+  }
+}

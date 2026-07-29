@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+*.log
+*.incoming
+.env
+.venv/
+runtime/
