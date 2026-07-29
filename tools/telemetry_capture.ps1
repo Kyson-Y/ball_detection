@@ -15,6 +15,7 @@ param(
     [string]$CsvPath = "",
     [string]$ImuCsvPath = "",
     [string]$AttitudeCsvPath = "",
+    [string]$ReflectanceCsvPath = "",
     [string]$JsonPath = ""
 )
 
@@ -255,6 +256,28 @@ if (-not [string]::IsNullOrWhiteSpace($AttitudeCsvPath)) {
         "roll_rate_dps,pitch_rate_dps,yaw_rate_dps,accel_norm_g," +
         "accel_weight,dt_s,processed_count,rejected_count," +
         "timing_reset_count,flags"
+    )
+}
+
+$reflectanceCsvWriter = $null
+if (-not [string]::IsNullOrWhiteSpace($ReflectanceCsvPath)) {
+    $resolvedReflectanceCsvPath =
+        [System.IO.Path]::GetFullPath($ReflectanceCsvPath)
+    $reflectanceCsvDirectory = Split-Path -Parent $resolvedReflectanceCsvPath
+    if (-not [string]::IsNullOrWhiteSpace($reflectanceCsvDirectory)) {
+        New-Item -ItemType Directory -Path $reflectanceCsvDirectory -Force |
+            Out-Null
+    }
+    $reflectanceCsvWriter = [System.IO.StreamWriter]::new(
+        $resolvedReflectanceCsvPath,
+        $false,
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    $reflectanceCsvWriter.WriteLine(
+        "sequence,timestamp_us,scan_sequence," +
+        "raw0,raw1,raw2,raw3,raw4,raw5,raw6,raw7," +
+        "minimum_raw,maximum_raw,conversion_timeout_count," +
+        "incomplete_scan_count,sample_count"
     )
 }
 
@@ -657,6 +680,18 @@ try {
                     $data, $payloadOffset + 28)
                 SampleCount = [BitConverter]::ToUInt32(
                     $data, $payloadOffset + 32)
+            }
+            if ($null -ne $reflectanceCsvWriter) {
+                $values = @(
+                    $sequence, $timestampUs, $reflectanceScanSequence
+                ) + @($rawValues) + @(
+                    $latestReflectance.MinimumRaw,
+                    $latestReflectance.MaximumRaw,
+                    $latestReflectance.ConversionTimeoutCount,
+                    $latestReflectance.IncompleteScanCount,
+                    $latestReflectance.SampleCount
+                )
+                $reflectanceCsvWriter.WriteLine($values -join ",")
             }
         }
         elseif (($frameType -eq $SupplyVoltageFrameType) -and
@@ -1105,6 +1140,9 @@ finally {
     if ($null -ne $attitudeCsvWriter) {
         $attitudeCsvWriter.Dispose()
     }
+    if ($null -ne $reflectanceCsvWriter) {
+        $reflectanceCsvWriter.Dispose()
+    }
 }
 
 if ($minimumPeriodUs -eq [uint32]::MaxValue) {
@@ -1242,6 +1280,7 @@ $summary = [pscustomobject]@{
     CsvPath = $CsvPath
     ImuCsvPath = $ImuCsvPath
     AttitudeCsvPath = $AttitudeCsvPath
+    ReflectanceCsvPath = $ReflectanceCsvPath
     JsonPath = $JsonPath
 }
 

@@ -14,6 +14,7 @@
 #include "command_service.h"
 #include "competition_service.h"
 #include "esp_uart_link_test.h"
+#include "h_mission_service.h"
 #include "imu_service.h"
 #include "motor_profile.h"
 #include "queue.h"
@@ -34,7 +35,7 @@
 #define SERVICE_HEALTH_REFRESH_PERIOD pdMS_TO_TICKS(100U)
 #define SERVICE_HEALTH_TELEMETRY_PERIOD pdMS_TO_TICKS(1000U)
 #define SERVICE_REFLECTANCE_SCAN_DIVIDER 1U
-#define SERVICE_REFLECTANCE_TELEMETRY_DECIMATION 125U
+#define SERVICE_REFLECTANCE_TELEMETRY_DECIMATION 5U
 #define SERVICE_SUPPLY_SAMPLE_PERIOD pdMS_TO_TICKS(10U)
 #define SERVICE_SUPPLY_TELEMETRY_PERIOD pdMS_TO_TICKS(100U)
 #define SERVICE_BUTTON_SAMPLE_PERIOD pdMS_TO_TICKS(5U)
@@ -364,10 +365,15 @@ void ServiceTask_Entry(void *context)
         if (reflectance_scan_divider >=
             SERVICE_REFLECTANCE_SCAN_DIVIDER) {
             reflectance_scan_divider = 0U;
-            if (BSP_Reflectance_Service(&reflectance_sample) &&
-                (reflectance_sample.scan_sequence %
-                    SERVICE_REFLECTANCE_TELEMETRY_DECIMATION) == 0U) {
-                (void) Telemetry_PublishReflectance(&reflectance_sample);
+            if (BSP_Reflectance_Service(&reflectance_sample)) {
+                HMissionService_ProcessReflectance(
+                    reflectance_sample.raw,
+                    reflectance_sample.scan_sequence,
+                    (uint32_t) now);
+                if ((reflectance_sample.scan_sequence %
+                        SERVICE_REFLECTANCE_TELEMETRY_DECIMATION) == 0U) {
+                    (void) Telemetry_PublishReflectance(&reflectance_sample);
+                }
             }
         }
 #endif

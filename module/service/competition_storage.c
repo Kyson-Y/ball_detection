@@ -9,6 +9,7 @@
 
 #define COMPETITION_STORAGE_ADDRESS 0x0001FC00UL
 #define COMPETITION_STORAGE_MAGIC   0x43464745UL
+#define COMPETITION_STORAGE_LEGACY_VERSION 2U
 
 typedef struct {
     uint32_t magic;
@@ -18,6 +19,17 @@ typedef struct {
     competition_settings_t settings;
     uint32_t crc32;
     uint32_t reserved;
+} competition_storage_legacy_record_t;
+
+typedef struct {
+    uint32_t magic;
+    uint16_t version;
+    uint16_t size_bytes;
+    uint32_t generation;
+    competition_settings_t settings;
+    competition_reflectance_calibration_t reflectance;
+    uint32_t crc32;
+    uint32_t reserved[2];
 } competition_storage_record_t;
 
 _Static_assert((sizeof(competition_storage_record_t) % 8U) == 0U,
@@ -27,11 +39,23 @@ _Static_assert((COMPETITION_STORAGE_ADDRESS % 1024U) == 0U,
 
 volatile competition_storage_diagnostics_t g_competition_storage_diag;
 
+static competition_settings_t s_cached_settings;
+static competition_reflectance_calibration_t s_cached_reflectance;
+static bool s_cached_settings_valid;
+static bool s_cached_reflectance_valid;
+
 static uint32_t CompetitionStorage_RecordCrc(
     const competition_storage_record_t *record)
 {
     return CompetitionStorage_Crc32(record,
         (uint32_t) offsetof(competition_storage_record_t, crc32));
+}
+
+static uint32_t CompetitionStorage_LegacyRecordCrc(
+    const competition_storage_legacy_record_t *record)
+{
+    return CompetitionStorage_Crc32(record,
+        (uint32_t) offsetof(competition_storage_legacy_record_t, crc32));
 }
 
 uint32_t CompetitionStorage_Crc32(const void *data, uint32_t length)
@@ -57,30 +81,64 @@ bool CompetitionStorage_Load(competition_settings_t *settings)
 {
     const competition_storage_record_t *record =
         (const competition_storage_record_t *) COMPETITION_STORAGE_ADDRESS;
+    const competition_storage_legacy_record_t *legacy =
+        (const competition_storage_legacy_record_t *)
+            COMPETITION_STORAGE_ADDRESS;
 
     g_competition_storage_diag.load_count++;
-    if (settings == NULL ||
-        record->magic != COMPETITION_STORAGE_MAGIC ||
-        record->version != COMPETITION_SETTINGS_VERSION ||
-        record->size_bytes != sizeof(competition_storage_record_t) ||
-        record->crc32 != CompetitionStorage_RecordCrc(record)) {
+    s_cached_settings_valid = false;
+    s_cached_reflectance_valid = false;
+    memset(&s_cached_settings, 0, sizeof(s_cached_settings));
+    memset(&s_cached_reflectance, 0, sizeof(s_cached_reflectance));
+    if (settings == NULL || record->magic != COMPETITION_STORAGE_MAGIC) {
         g_competition_storage_diag.loaded_valid = 0U;
         return false;
     }
-    *settings = record->settings;
-    g_competition_storage_diag.generation = record->generation;
+    if (record->version == COMPETITION_SETTINGS_VERSION &&
+        record->size_bytes == sizeof(competition_storage_record_t) &&
+        record->crc32 == CompetitionStorage_RecordCrc(record)) {
+        *settings = record->settings;
+        s_cached_settings = record->settings;
+        s_cached_reflectance = record->reflectance;
+        s_cached_settings_valid = true;
+        s_cached_reflectance_valid =
+            record->reflectance.valid_mask == 0xFFU;
+        g_competition_storage_diag.generation = record->generation;
+    } else if (legacy->version == COMPETITION_STORAGE_LEGACY_VERSION &&
+        legacy->size_bytes == sizeof(competition_storage_legacy_record_t) &&
+        legacy->crc32 == CompetitionStorage_LegacyRecordCrc(legacy)) {
+        *settings = legacy->settings;
+        s_cached_settings = legacy->settings;
+        s_cached_settings_valid = true;
+        g_competition_storage_diag.generation = legacy->generation;
+    } else {
+        g_competition_storage_diag.loaded_valid = 0U;
+        return false;
+    }
     g_competition_storage_diag.loaded_valid = 1U;
     return true;
 }
 
-bool CompetitionStorage_Save(const competition_settings_t *settings)
+void CompetitionStorage_SetSettingsSnapshot(
+    const competition_settings_t *settings)
+{
+    if (settings == NULL) {
+        return;
+    }
+    s_cached_settings = *settings;
+    s_cached_settings_valid = true;
+}
+
+static bool CompetitionStorage_SaveRecord(
+    const competition_settings_t *settings,
+    const competition_reflectance_calibration_t *reflectance)
 {
     competition_storage_record_t record;
     const uint32_t *words;
     uint32_t offset;
     bool ok = true;
 
-    if (settings == NULL) {
+    if (settings == NULL || reflectance == NULL) {
         return false;
     }
     memset(&record, 0xFF, sizeof(record));
@@ -89,6 +147,7 @@ bool CompetitionStorage_Save(const competition_settings_t *settings)
     record.size_bytes = sizeof(record);
     record.generation = g_competition_storage_diag.generation + 1U;
     record.settings = *settings;
+    record.reflectance = *reflectance;
     record.crc32 = CompetitionStorage_RecordCrc(&record);
     words = (const uint32_t *) &record;
 
@@ -126,4 +185,47 @@ bool CompetitionStorage_Save(const competition_settings_t *settings)
         g_competition_storage_diag.save_failure_count++;
     }
     return ok;
+}
+
+bool CompetitionStorage_Save(const competition_settings_t *settings)
+{
+    competition_reflectance_calibration_t empty_reflectance;
+    const competition_reflectance_calibration_t *reflectance;
+
+    if (settings == NULL) {
+        return false;
+    }
+    memset(&empty_reflectance, 0, sizeof(empty_reflectance));
+    CompetitionStorage_SetSettingsSnapshot(settings);
+    reflectance = s_cached_reflectance_valid ?
+        &s_cached_reflectance : &empty_reflectance;
+    return CompetitionStorage_SaveRecord(settings, reflectance);
+}
+
+bool CompetitionStorage_LoadReflectanceCalibration(
+    competition_reflectance_calibration_t *calibration)
+{
+    if (calibration == NULL || !s_cached_reflectance_valid) {
+        return false;
+    }
+    *calibration = s_cached_reflectance;
+    return true;
+}
+
+bool CompetitionStorage_SaveReflectanceCalibration(
+    const competition_reflectance_calibration_t *calibration)
+{
+    bool saved;
+
+    if (calibration == NULL || calibration->valid_mask != 0xFFU ||
+        !s_cached_settings_valid) {
+        return false;
+    }
+    saved = CompetitionStorage_SaveRecord(
+        &s_cached_settings, calibration);
+    if (saved) {
+        s_cached_reflectance = *calibration;
+        s_cached_reflectance_valid = true;
+    }
+    return saved;
 }

@@ -402,6 +402,7 @@ void CompetitionService_Init(void)
         !CompetitionService_SettingsValid(&settings)) {
         CompetitionService_DefaultSettings(&settings);
     }
+    CompetitionStorage_SetSettingsSnapshot(&settings);
     g_competition_service.settings = settings;
     g_control_tuning_params.kp = settings.pid_kp;
     g_control_tuning_params.ki = settings.pid_ki;

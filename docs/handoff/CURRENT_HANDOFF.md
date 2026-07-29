@@ -2,10 +2,36 @@
 
 ```yaml
 handoff_schema: 1
-updated_at: 2026-07-28T00:52:00+08:00
+updated_at: 2026-07-29T21:02:55+08:00
 updated_by: Codex
-status: 513x_chassis_closeout_before_zdt_pcb_test
+status: h_task1_frozen_task3_ab_drive_planning
 ```
+
+## 当前任务：任务 1 收口，进入任务 3 的 AB 段行驶
+
+- 唯一正式仓库为 `E:\ECHO`，正式分支为 `main`，本轮开始 HEAD `dd6dc80`；任务 1 的源码、
+  测试、工具和文档正在形成正式收口提交并同步 `origin/main`。
+- 用户已有的 `ECHO.uvmpw`、`freertos/keil/freertos_ECHO.uvprojx`、
+  `keil/ECHO.uvprojx` 只有 uVision XML 格式重排，按保护规则不暂存、不覆盖。
+- 任务 1 已在正式地图完成多轮顺时针实车循迹。正式速度规划冻结为：首 250 mm 100 rpm、
+  弯道 120 rpm、直线 140 rpm、末段 75 rpm；首段导数预判 6 扫描、最大纠偏 60 rpm，
+  之后为 18 扫描和 75 rpm。现有 513X 速度 PID、前馈、电池补偿和安全门控保持不变。
+- 反射估计使用 8 路归一化强度和最近连续黑线簇，避免 C 字母形成的远端黑色区域抢占主线。
+  标定采用 Flash v3 记录掉电保存，`tools/install_reflectance_calibration.ps1` 可安装经跨度与
+  CRC 校验的记录。
+- 终点在里程/顺时针累计航向门控后识别 A 点横线：五次扫描窗口中至少两次存在连续 4 路
+  有效探头即触发 80 ms 受控 H 桥刹车。正式版本不再执行横线后的 IMU 回正或编码器前移。
+- 最后一次 `h2-v20-launch-run2` 采集为 60.7 s、11415 帧；控制 100 Hz、反射 125 Hz、
+  IMU/姿态 100 Hz，CRC/gap/out-of-order/deadline/I2C 均为 0，电池 15.589--15.686 V。
+  采集只覆盖最后 2.84 s 运动；末段 75 rpm 持续 0.62 s，目标归零后估算继续前移 26.5 mm，
+  因此不能用该文件评价起步和第一个弯道。
+- 最新 Health active mask 为 0；sticky `0x00010000` 表示历史上出现过左 QEI 非法跳变，
+  本轮没有活动故障。最新执行器输出已归零，COM18 已释放。
+- 2026-07-29 全量构建：FreeRTOS/App 均 0 Error / 0 Warning；App `Code=106760,
+  RO=3780, RW=188, ZI=24632`；HEX SHA-256
+  `BB075E80B15E396DA59986467BE4229551B999AF09C44DFB084CCADBD4BCA9AC`。
+- 五个主机遥测 fixture、相关 PowerShell AST 均通过。任务 1 到此冻结；下一步先核对 H 题
+  第三问原文，再完成要求 8 s 内通过且保持球稳定的 AB 段行驶策略。
 
 ## 当前任务：513X阶段收尾，下一步测试PCB上的张大头/ZDT
 

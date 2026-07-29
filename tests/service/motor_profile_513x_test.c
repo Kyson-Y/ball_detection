@@ -21,17 +21,19 @@ int main(void)
     assert(profile->profile_version == 5U);
     assert(strcmp(profile->model_name, "MG513X") == 0);
     assert(profile->start_pwm_permille == 600U);
-    assert(profile->maximum_pwm_permille == 650U);
+    assert(profile->maximum_pwm_permille == 720U);
     assert(profile->speed_pid.output_limit_permille == 650.0f);
+    assert(profile->speed_limit_rpm == 180.0f);
     assert(profile->speed_pid.left_feedforward_offset_permille == 545.0f);
     assert(profile->speed_pid.right_feedforward_offset_permille == 535.0f);
 #elif ECHO_MOTOR_PROFILE_SELECTION == ECHO_MOTOR_PROFILE_513X_4S
     assert(profile->profile_id == MOTOR_PROFILE_ID_513X_4S);
-    assert(profile->profile_version == 14U);
+    assert(profile->profile_version == 17U);
     assert(strcmp(profile->model_name, "MG513X-4S") == 0);
     assert(profile->start_pwm_permille == 600U);
-    assert(profile->maximum_pwm_permille == 650U);
-    assert(profile->speed_pid.output_limit_permille == 650.0f);
+    assert(profile->maximum_pwm_permille == 720U);
+    assert(profile->speed_pid.output_limit_permille == 720.0f);
+    assert(profile->speed_limit_rpm == 220.0f);
     assert(profile->speed_pid.boost_minimum_ms == 10U);
     assert(profile->speed_pid.boost_release_fraction == 0.25f);
     assert(profile->speed_pid.kp == 6.0f);
@@ -45,7 +47,7 @@ int main(void)
     assert(profile->speed_pid.right_feedforward_gain_permille_per_rpm ==
         2.17f);
     assert(profile->speed_pid.target_slew_rpm_per_s == 150.0f);
-    assert(profile->speed_pid.target_slew_down_rpm_per_s == 90.0f);
+    assert(profile->speed_pid.target_slew_down_rpm_per_s == 200.0f);
     assert(profile->control_reference_voltage_mv == 16580U);
 #else
 #error "This test only supports the 513X supply profiles."
@@ -57,7 +59,6 @@ int main(void)
     assert(profile->encoder_ppr == 500U);
     assert(profile->encoder_signal_mv == 3300U);
     assert(profile->maximum_output_rpm == 370U);
-    assert(profile->speed_limit_rpm == 100.0f);
     assert(profile->acceleration_limit_rpm_per_s == 150.0f);
     assert(profile->encoder_interface == MOTOR_ENCODER_INTERFACE_GMR_AB);
     assert(profile->wheel[MOTOR_WHEEL_LEFT].counts_per_output_revolution ==

@@ -12,6 +12,7 @@
 #define CHASSIS_ACTUATOR_HEADING_MAX_DURATION_MS 15000U
 #define CHASSIS_ACTUATOR_DISTANCE_MAX_DURATION_MS 60000U
 #define CHASSIS_ACTUATOR_DISTANCE_MAX_MM        5000
+#define CHASSIS_ACTUATOR_CONTROLLED_STOP_MAX_MS 200U
 
 typedef enum {
     CHASSIS_ACTUATOR_MODE_ELECTRICAL = 0U,
@@ -114,6 +115,10 @@ typedef struct {
     float distance_remaining_mm;
     uint32_t distance_update_count;
     uint32_t distance_complete_count;
+    uint32_t controlled_stop_count;
+    uint16_t controlled_stop_remaining_cycles;
+    uint8_t controlled_stop_active;
+    uint8_t controlled_stop_settle_cycles;
 } chassis_actuator_diagnostics_t;
 
 /* Watch/debug readers must treat this as read-only. */
@@ -127,6 +132,7 @@ void ChassisActuator_ServiceAtControlBoundary(
     int32_t right_delta_counts, float left_measured_rpm,
     float right_measured_rpm, uint32_t period_us);
 void ChassisActuator_ForceSafe(chassis_actuator_stop_reason_t reason);
+bool ChassisActuator_RequestControlledStop(uint16_t maximum_brake_ms);
 bool ChassisActuator_SetPivotMaximumRpm(float maximum_rpm);
 float ChassisActuator_GetPivotMaximumRpm(void);
 

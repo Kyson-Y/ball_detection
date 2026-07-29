@@ -136,6 +136,8 @@ $jsonPath = Join-Path ([System.IO.Path]::GetTempPath()) `
     "echo-phase1f-telemetry-fixture.json"
 $csvPath = Join-Path ([System.IO.Path]::GetTempPath()) `
     "echo-phase1f-telemetry-fixture.csv"
+$reflectanceCsvPath = Join-Path ([System.IO.Path]::GetTempPath()) `
+    "echo-phase1f-reflectance-fixture.csv"
 $bytes = [System.Collections.Generic.List[byte]]::new()
 [uint32]$sequence = 0
 
@@ -167,13 +169,15 @@ try {
     }
     [System.IO.File]::WriteAllBytes($binaryPath, $bytes.ToArray())
     & $capturePath -InputPath $binaryPath -JsonPath $jsonPath `
-        -CsvPath $csvPath | Out-Host
+        -CsvPath $csvPath -ReflectanceCsvPath $reflectanceCsvPath | Out-Host
     if (($null -ne $LASTEXITCODE) -and ($LASTEXITCODE -ne 0)) {
         throw "telemetry_capture.ps1 returned $LASTEXITCODE"
     }
 
     $summary = Get-Content -Raw -LiteralPath $jsonPath | ConvertFrom-Json
     $csvRows = @(Import-Csv -LiteralPath $csvPath)
+    $reflectanceCsvRows = @(Import-Csv -LiteralPath $reflectanceCsvPath)
+    $lastReflectanceRow = $reflectanceCsvRows | Select-Object -Last 1
     $extendedRow = $csvRows | Where-Object {
         $_.parameter_apply_sequence -eq "17"
     } | Select-Object -First 1
@@ -206,6 +210,14 @@ try {
         ($summary.LatestReflectance.ConversionTimeoutCount -ne 0) -or
         ($summary.LatestReflectance.IncompleteScanCount -ne 0) -or
         ($summary.LatestReflectance.SampleCount -ne 200) -or
+        ($reflectanceCsvRows.Count -ne 25) -or
+        ($null -eq $lastReflectanceRow) -or
+        ($lastReflectanceRow.scan_sequence -ne "25") -or
+        ($lastReflectanceRow.raw0 -ne "1025") -or
+        ($lastReflectanceRow.raw7 -ne "1032") -or
+        ($lastReflectanceRow.minimum_raw -ne "1025") -or
+        ($lastReflectanceRow.maximum_raw -ne "1032") -or
+        ($lastReflectanceRow.sample_count -ne "200") -or
         ($csvRows.Count -ne 200) -or ($null -eq $extendedRow) -or
         ([Math]::Abs([double]$extendedRow.right_setpoint - 1.1) -gt 0.0001) -or
         ([Math]::Abs([double]$extendedRow.left_pid_proportional - 10.0) -gt 0.0001) -or
@@ -220,4 +232,6 @@ finally {
     Remove-Item -LiteralPath $binaryPath -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $jsonPath -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $csvPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $reflectanceCsvPath -Force `
+        -ErrorAction SilentlyContinue
 }

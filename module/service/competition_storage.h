@@ -4,7 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define COMPETITION_SETTINGS_VERSION 2U
+#define COMPETITION_SETTINGS_VERSION 3U
+#define COMPETITION_REFLECTANCE_CHANNEL_COUNT 8U
 
 typedef enum {
     COMPETITION_TEST_DISTANCE = 0U,
@@ -27,6 +28,13 @@ typedef struct {
 } competition_settings_t;
 
 typedef struct {
+    uint16_t black[COMPETITION_REFLECTANCE_CHANNEL_COUNT];
+    uint16_t white[COMPETITION_REFLECTANCE_CHANNEL_COUNT];
+    uint8_t valid_mask;
+    uint8_t reserved[3];
+} competition_reflectance_calibration_t;
+
+typedef struct {
     uint32_t load_count;
     uint32_t save_count;
     uint32_t save_failure_count;
@@ -41,6 +49,12 @@ extern volatile competition_storage_diagnostics_t
 
 uint32_t CompetitionStorage_Crc32(const void *data, uint32_t length);
 bool CompetitionStorage_Load(competition_settings_t *settings);
+void CompetitionStorage_SetSettingsSnapshot(
+    const competition_settings_t *settings);
 bool CompetitionStorage_Save(const competition_settings_t *settings);
+bool CompetitionStorage_LoadReflectanceCalibration(
+    competition_reflectance_calibration_t *calibration);
+bool CompetitionStorage_SaveReflectanceCalibration(
+    const competition_reflectance_calibration_t *calibration);
 
 #endif

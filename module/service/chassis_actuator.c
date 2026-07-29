@@ -54,6 +54,8 @@
 #define CHASSIS_ACTUATOR_DISTANCE_APPROACH_MIN_RPM    10.0f
 #define CHASSIS_ACTUATOR_DISTANCE_APPROACH_GAIN        0.2f
 #define CHASSIS_ACTUATOR_DISTANCE_MIN_MM                20
+#define CHASSIS_ACTUATOR_CONTROLLED_STOP_RPM             3.0f
+#define CHASSIS_ACTUATOR_CONTROLLED_STOP_SETTLE_CYCLES    2U
 
 volatile chassis_actuator_diagnostics_t g_chassis_actuator_diag;
 
@@ -86,6 +88,7 @@ static int8_t s_last_distance_direction;
 static int8_t s_distance_direction;
 static bool s_caster_reversal_active;
 static float s_distance_heading_reference_deg;
+static volatile uint16_t s_controlled_stop_request_cycles;
 
 static const heading_controller_config_t s_heading_config = {
     CHASSIS_ACTUATOR_HEADING_KP_RPM_PER_DEG,
@@ -705,6 +708,7 @@ void ChassisActuator_ForceSafe(chassis_actuator_stop_reason_t reason)
     s_distance_direction = 0;
     s_caster_reversal_active = false;
     s_distance_heading_reference_deg = 0.0f;
+    s_controlled_stop_request_cycles = 0U;
     DistanceController_Stop(&s_distance_controller);
     s_heading_controller.config.kp_rpm_per_deg =
         CHASSIS_ACTUATOR_HEADING_KP_RPM_PER_DEG;
@@ -730,6 +734,9 @@ void ChassisActuator_ForceSafe(chassis_actuator_stop_reason_t reason)
     g_chassis_actuator_diag.output_permitted = 0U;
     g_chassis_actuator_diag.continuous_speed = 0U;
     g_chassis_actuator_diag.voltage_compensation_active = 0U;
+    g_chassis_actuator_diag.controlled_stop_remaining_cycles = 0U;
+    g_chassis_actuator_diag.controlled_stop_active = 0U;
+    g_chassis_actuator_diag.controlled_stop_settle_cycles = 0U;
     g_chassis_actuator_diag.last_stop_reason = (uint8_t) reason;
     s_pending_valid = false;
     ChassisActuator_UpdateControllerDiagnostics();
@@ -750,6 +757,7 @@ void ChassisActuator_Init(void)
     s_supply_stale_cycles = 0U;
     s_pivot_maximum_rpm = CHASSIS_ACTUATOR_PIVOT_MAX_RPM;
     s_last_distance_direction = 0;
+    s_controlled_stop_request_cycles = 0U;
     HeadingController_Init(&s_heading_controller, &s_heading_config);
     memset(&distance_config, 0, sizeof(distance_config));
     distance_config.wheel_circumference_mm =
@@ -775,6 +783,32 @@ void ChassisActuator_Init(void)
     BSP_Motor_Init();
     ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_NONE);
     g_chassis_actuator_diag.initialized = 1U;
+}
+
+bool ChassisActuator_RequestControlledStop(uint16_t maximum_brake_ms)
+{
+    uint16_t cycles;
+    bool accepted = false;
+
+    if (maximum_brake_ms == 0U ||
+        maximum_brake_ms > CHASSIS_ACTUATOR_CONTROLLED_STOP_MAX_MS) {
+        return false;
+    }
+    cycles = (uint16_t) ((maximum_brake_ms +
+        CHASSIS_ACTUATOR_CONTROL_PERIOD_MS - 1U) /
+        CHASSIS_ACTUATOR_CONTROL_PERIOD_MS);
+
+    taskENTER_CRITICAL();
+    if (g_chassis_actuator_diag.initialized != 0U &&
+        g_chassis_actuator_diag.output_permitted != 0U &&
+        g_chassis_actuator_diag.controlled_stop_active == 0U &&
+        s_controlled_stop_request_cycles == 0U) {
+        s_controlled_stop_request_cycles = cycles;
+        s_pending_valid = false;
+        accepted = true;
+    }
+    taskEXIT_CRITICAL();
+    return accepted;
 }
 
 chassis_actuator_command_status_t ChassisActuator_StageDebugRequest(
@@ -1128,6 +1162,7 @@ void ChassisActuator_ServiceAtControlBoundary(
 {
     chassis_actuator_debug_request_t request;
     uint16_t cycles;
+    uint16_t controlled_stop_cycles;
     uint8_t retarget_start_mask;
     bool pending;
 
@@ -1140,6 +1175,66 @@ void ChassisActuator_ServiceAtControlBoundary(
             g_chassis_actuator_diag.timing_stop_count++;
         }
         ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_TIMING);
+        return;
+    }
+
+    taskENTER_CRITICAL();
+    controlled_stop_cycles = s_controlled_stop_request_cycles;
+    s_controlled_stop_request_cycles = 0U;
+    taskEXIT_CRITICAL();
+
+    if (controlled_stop_cycles != 0U) {
+        g_chassis_actuator_diag.left_target_deci_rpm = 0;
+        g_chassis_actuator_diag.right_target_deci_rpm = 0;
+        g_chassis_actuator_diag.speed_phase =
+            (uint8_t) CHASSIS_SPEED_PHASE_IDLE;
+        g_chassis_actuator_diag.controlled_stop_remaining_cycles =
+            controlled_stop_cycles;
+        g_chassis_actuator_diag.controlled_stop_settle_cycles = 0U;
+        g_chassis_actuator_diag.controlled_stop_active = 1U;
+        s_pending_valid = false;
+    }
+
+    if (g_chassis_actuator_diag.controlled_stop_active != 0U) {
+        bool stopped =
+            ChassisActuator_AbsFloat(left_measured_rpm) <=
+                CHASSIS_ACTUATOR_CONTROLLED_STOP_RPM &&
+            ChassisActuator_AbsFloat(right_measured_rpm) <=
+                CHASSIS_ACTUATOR_CONTROLLED_STOP_RPM;
+
+        WheelSpeedController_Reset(
+            &s_speed_controller[MOTOR_WHEEL_LEFT]);
+        WheelSpeedController_Reset(
+            &s_speed_controller[MOTOR_WHEEL_RIGHT]);
+        if (!BSP_Motor_Brake(BSP_MOTOR_LEFT) ||
+            !BSP_Motor_Brake(BSP_MOTOR_RIGHT)) {
+            g_chassis_actuator_diag.rejected_request_count++;
+            ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_REJECTED);
+            return;
+        }
+        g_chassis_actuator_diag.applied_left_permille = 0;
+        g_chassis_actuator_diag.applied_right_permille = 0;
+        g_chassis_actuator_diag.normalized_left_permille = 0;
+        g_chassis_actuator_diag.normalized_right_permille = 0;
+        g_chassis_actuator_diag.compensated_left_permille = 0;
+        g_chassis_actuator_diag.compensated_right_permille = 0;
+        if (stopped) {
+            if (g_chassis_actuator_diag.controlled_stop_settle_cycles <
+                    UINT8_MAX) {
+                g_chassis_actuator_diag.controlled_stop_settle_cycles++;
+            }
+        } else {
+            g_chassis_actuator_diag.controlled_stop_settle_cycles = 0U;
+        }
+        if (g_chassis_actuator_diag.controlled_stop_remaining_cycles > 0U) {
+            g_chassis_actuator_diag.controlled_stop_remaining_cycles--;
+        }
+        if (g_chassis_actuator_diag.controlled_stop_settle_cycles >=
+                CHASSIS_ACTUATOR_CONTROLLED_STOP_SETTLE_CYCLES ||
+            g_chassis_actuator_diag.controlled_stop_remaining_cycles == 0U) {
+            g_chassis_actuator_diag.controlled_stop_count++;
+            ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_COMPLETE);
+        }
         return;
     }
 
