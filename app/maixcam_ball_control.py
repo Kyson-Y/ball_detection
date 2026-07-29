@@ -22,6 +22,7 @@ from ball_uart_protocol import (
     build_state_packet,
 )
 from preview_encoder import PreviewEncoder
+from reference_calibration import EmptyReferenceAccumulator, save_reference
 from status_server import StatusServer
 
 
@@ -143,6 +144,9 @@ def run(config_path: str) -> int:
     next_preview_at = 0.0
     preview_fps = float(status_config.get("preview_fps", 0.0))
     preview_interval_s = 1.0 / preview_fps if preview_fps > 0.0 else 0.0
+    calibration_accumulator = None
+    calibration_started_at = None
+    calibration_temperature_start_mc = None
 
     try:
         cam = camera.Camera(
@@ -184,7 +188,10 @@ def run(config_path: str) -> int:
 
         if bool(status_config["enabled"]):
             try:
-                status_server = StatusServer(int(status_config["port"]))
+                status_server = StatusServer(
+                    int(status_config["port"]),
+                    calibration_target_frames=int(reference_config["capture_frames"]),
+                )
                 status_server.start()
                 print(f"status_server_started port={status_server.port}", flush=True)
             except Exception as exc:
@@ -236,7 +243,106 @@ def run(config_path: str) -> int:
             capture_monotonic_s = time.monotonic()
             capture_time_ms = int(capture_monotonic_s * 1000.0) & 0xFFFFFFFF
             gray = frame_to_gray(frame, width, height)
-            latest_result = detector.detect(gray, vertical_shift, alignment_cost)
+            calibration_frame = False
+            if (
+                status_server is not None
+                and calibration_accumulator is None
+                and status_server.consume_empty_calibration_request()
+            ):
+                calibration_frame = True
+                try:
+                    calibration_accumulator = EmptyReferenceAccumulator(config)
+                    calibration_started_at = time.monotonic()
+                    calibration_temperature_start_mc = read_temperature_mc(
+                        temperature_path
+                    )
+                    tracker.reset()
+                    print(
+                        "empty_calibration_started "
+                        f"target_frames={calibration_accumulator.target_frames}",
+                        flush=True,
+                    )
+                except Exception as exc:
+                    status_server.fail_empty_calibration(repr(exc))
+                    calibration_accumulator = None
+                    print(f"empty_calibration_error error={exc!r}", flush=True)
+
+            if calibration_accumulator is not None:
+                calibration_frame = True
+                try:
+                    calibration_accumulator.add(gray)
+                    status_server.update_calibration_progress(
+                        calibration_accumulator.captured_frames
+                    )
+                    if calibration_accumulator.complete:
+                        raw_jpeg = None
+                        try:
+                            jpeg = frame.to_jpeg(quality=90)
+                            raw_jpeg = bytes(jpeg.to_bytes(copy=True))
+                        except Exception as exc:
+                            print(
+                                f"empty_calibration_jpeg_error error={exc!r}",
+                                flush=True,
+                            )
+
+                        new_reference = calibration_accumulator.reference()
+                        new_detector = BallDetector(config, new_reference)
+                        new_vertical_shift, new_alignment_cost = (
+                            new_detector.estimate_vertical_shift(gray)
+                        )
+                        metadata = save_reference(
+                            new_reference,
+                            config,
+                            elapsed_s=time.monotonic() - calibration_started_at,
+                            temperature_start_mc=calibration_temperature_start_mc,
+                            temperature_end_mc=read_temperature_mc(temperature_path),
+                            source="status_server_post",
+                            raw_jpeg=raw_jpeg,
+                        )
+                        detector = new_detector
+                        origin_x_px = detector.origin_x
+                        vertical_shift = new_vertical_shift
+                        alignment_cost = new_alignment_cost
+                        tracker.reset()
+                        status_server.finish_empty_calibration(
+                            metadata["calibration_id"]
+                        )
+                        print(
+                            "empty_calibration_succeeded "
+                            f"calibration_id={metadata['calibration_id']} "
+                            f"vertical_shift={vertical_shift} "
+                            f"alignment_cost={alignment_cost:.3f}",
+                            flush=True,
+                        )
+                        calibration_accumulator = None
+                        calibration_started_at = None
+                        calibration_temperature_start_mc = None
+                except Exception as exc:
+                    status_server.fail_empty_calibration(repr(exc))
+                    calibration_accumulator = None
+                    calibration_started_at = None
+                    calibration_temperature_start_mc = None
+                    tracker.reset()
+                    print(f"empty_calibration_error error={exc!r}", flush=True)
+
+            if calibration_frame:
+                latest_result = {
+                    "detected": False,
+                    "reference_mismatch": True,
+                    "center_x": 0.0,
+                    "center_y": detector.roi_h / 2.0,
+                    "offset_x": None,
+                    "peak": 0,
+                    "threshold": 0,
+                    "confidence": 0.0,
+                    "brightness_offset": 0,
+                    "changed_ratio": 0.0,
+                    "vertical_shift": int(vertical_shift),
+                    "alignment_cost": float(alignment_cost),
+                    "roi_y": detector.roi_y + int(vertical_shift),
+                }
+            else:
+                latest_result = detector.detect(gray, vertical_shift, alignment_cost)
             frames += 1
             report_frames += 1
 
@@ -293,7 +399,7 @@ def run(config_path: str) -> int:
                 flags |= FLAG_LOW_CONFIDENCE
             if latest_result["reference_mismatch"]:
                 flags |= FLAG_REFERENCE_MISMATCH
-            if bool(calibration["valid"]):
+            if bool(calibration["valid"]) and not calibration_frame:
                 flags |= FLAG_CALIBRATION_VALID
             if temperature_mc is not None and temperature_mc >= warning_mc:
                 flags |= FLAG_TEMPERATURE_WARNING

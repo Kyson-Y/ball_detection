@@ -12,7 +12,8 @@
 4. `app/ball_uart_protocol.py`：22 字节协议、CRC16、alpha-beta 速度估计。
 5. `app/status_server.py`：状态 JSON、网页和单张 JPEG 接口。
 6. `app/preview_encoder.py`：后台按需编码并丢弃过期预览帧。
-7. `app/capture_empty_reference.py`：最终安装后重采空管基准。
+7. `app/reference_calibration.py`：多帧平均、原子替换、标定历史和旧参考备份。
+8. `app/capture_empty_reference.py`：停止正式程序后单独采集空管基准的备用入口。
 
 不要在没有新标定和测试证据时同时修改 ROI、曝光、阈值和毫米换算。`FLAG_DETECTED=0` 或 `FLAG_REFERENCE_MISMATCH=1` 时，下位机不得使用位置闭环。
 
@@ -80,6 +81,14 @@ AA 55 01 01 16 23 E8 03 40 E2 01 00 EA 00 82 FF E6 00 03 00 21 9A
 
 随后把钢球放在多个已知毫米位置，更新配置中的 `mm_per_pixel` 和 `position_sign`。当前 O 点固定由 ROI 中心计算，`250/640 mm/px` 只是“25 cm 水管占满 640 px”的临时线性标定。
 
+正式程序还提供隐藏接口 `POST /calibrate/empty`，网页上没有标定按钮。启动程序、重启板子、打开网页或读取状态都不会触发标定；必须在确认相机、水管、照明固定且钢球已移走后显式发送：
+
+```sh
+curl -X POST http://10.5.66.1:8080/calibrate/empty
+```
+
+程序复用当前摄像头采集 32 帧，期间 UART 输出保持无效。通过 `/status.json` 查看 `calibration_state`、`calibration_captured_frames`、`calibration_target_frames`、`calibration_id` 和 `calibration_error`；状态变为 `succeeded` 后，新参考立即生效，无需重启。进行中的重复请求返回 HTTP `409`，历次参考保存在 `/root/ball_detection/runtime/calibrations/`。
+
 ## 板端运行
 
 正式启动脚本：
@@ -108,6 +117,6 @@ AA 55 01 01 16 23 E8 03 40 E2 01 00 EA 00 82 FF E6 00 03 00 21 9A
 python -m unittest discover -s tests -v
 ```
 
-- 电脑端和 MaixCAM 端各 12 项检测、协议、CRC、滤波、状态页和 JPEG 接口测试通过。
+- 电脑端和 MaixCAM 端各 16 项检测、协议、CRC、滤波、标定归档、状态页和 JPEG 接口测试通过。
 - V3 实测无预览约 `41.93 Hz`，打开 2 FPS 预览约 `40.81 Hz`，下降约 2.7%；单张约 16.5 KB、编码约 30 ms，`preview_errors=0`、`uart_errors=0`。
 - 最终毫米精度必须在正式机械安装、重新采集空管基准并放置真实钢球后验收；合成测试不能替代实物精度测试。

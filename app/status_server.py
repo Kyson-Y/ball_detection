@@ -46,7 +46,12 @@ refreshStatus();refreshFrame();setInterval(refreshStatus,250);setInterval(refres
 
 
 class StatusServer:
-    def __init__(self, port: int, host: str = "0.0.0.0") -> None:
+    def __init__(
+        self,
+        port: int,
+        host: str = "0.0.0.0",
+        calibration_target_frames: int = 32,
+    ) -> None:
         self.host = host
         self.port = int(port)
         self._snapshot = {
@@ -71,6 +76,13 @@ class StatusServer:
         self._preview_seq = 0
         self._preview_updated_at = None
         self._preview_requested_at = None
+        self._calibration = {
+            "calibration_state": "idle",
+            "calibration_captured_frames": 0,
+            "calibration_target_frames": int(calibration_target_frames),
+            "calibration_id": None,
+            "calibration_error": None,
+        }
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._socket = None
@@ -101,6 +113,57 @@ class StatusServer:
         with self._lock:
             requested_at = self._preview_requested_at
         return requested_at is not None and time.monotonic() - requested_at <= max_age_s
+
+    def request_empty_calibration(self) -> bool:
+        with self._lock:
+            if self._calibration["calibration_state"] in ("pending", "capturing"):
+                return False
+            self._calibration.update(
+                {
+                    "calibration_state": "pending",
+                    "calibration_captured_frames": 0,
+                    "calibration_id": None,
+                    "calibration_error": None,
+                }
+            )
+            return True
+
+    def consume_empty_calibration_request(self) -> bool:
+        with self._lock:
+            if self._calibration["calibration_state"] != "pending":
+                return False
+            self._calibration["calibration_state"] = "capturing"
+            return True
+
+    def update_calibration_progress(self, captured_frames: int) -> None:
+        with self._lock:
+            if self._calibration["calibration_state"] == "capturing":
+                self._calibration["calibration_captured_frames"] = int(
+                    captured_frames
+                )
+
+    def finish_empty_calibration(self, calibration_id: str) -> None:
+        with self._lock:
+            self._calibration.update(
+                {
+                    "calibration_state": "succeeded",
+                    "calibration_captured_frames": self._calibration[
+                        "calibration_target_frames"
+                    ],
+                    "calibration_id": str(calibration_id),
+                    "calibration_error": None,
+                }
+            )
+
+    def fail_empty_calibration(self, error: str) -> None:
+        with self._lock:
+            self._calibration.update(
+                {
+                    "calibration_state": "failed",
+                    "calibration_id": None,
+                    "calibration_error": str(error),
+                }
+            )
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -141,6 +204,7 @@ class StatusServer:
                 if self._preview_updated_at is None
                 else int((now - self._preview_updated_at) * 1000.0)
             )
+            snapshot.update(self._calibration)
         return json.dumps(snapshot, separators=(",", ":")).encode("ascii")
 
     def _mark_preview_requested(self) -> None:
@@ -154,8 +218,20 @@ class StatusServer:
         except (OSError, socket.timeout):
             return
         parts = request.split(b" ", 2)
+        method = parts[0].upper() if parts else b""
         path = parts[1].split(b"?", 1)[0] if len(parts) >= 2 else b""
-        if path == b"/status.json":
+        if path == b"/calibrate/empty":
+            if method != b"POST":
+                payload = b'{"accepted":false,"error":"method_not_allowed"}'
+                status = b"405 Method Not Allowed"
+            elif self.request_empty_calibration():
+                payload = b'{"accepted":true,"calibration_state":"pending"}'
+                status = b"202 Accepted"
+            else:
+                payload = b'{"accepted":false,"error":"calibration_in_progress"}'
+                status = b"409 Conflict"
+            content_type = b"application/json"
+        elif path == b"/status.json":
             payload = self._status_payload()
             content_type = b"application/json"
             status = b"200 OK"
