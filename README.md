@@ -6,14 +6,15 @@
 
 按以下顺序读取即可理解工程：
 
-1. `config/ball_detection.json`：相机、ROI、阈值、标定、UART 和温度参数。
-2. `app/maixcam_ball_control.py`：正式实时主循环。
-3. `app/ball_detector.py`：空管差分、一维投影、峰值和质心。
-4. `app/ball_uart_protocol.py`：22 字节协议、CRC16、alpha-beta 速度估计。
-5. `app/status_server.py`：状态 JSON、网页和单张 JPEG 接口。
-6. `app/preview_encoder.py`：后台按需编码并丢弃过期预览帧。
-7. `app/reference_calibration.py`：多帧平均、原子替换、标定历史和旧参考备份。
-8. `app/capture_empty_reference.py`：停止正式程序后单独采集空管基准的备用入口。
+1. `docs/CODEX_HANDOFF.md`：AI 必须遵守的板端生命周期、部署、恢复和标定红线。
+2. `config/ball_detection.json`：相机、ROI、阈值、标定、UART 和温度参数。
+3. `app/maixcam_ball_control.py`：正式实时主循环。
+4. `app/ball_detector.py`：空管差分、一维投影、峰值和质心。
+5. `app/ball_uart_protocol.py`：22 字节协议、CRC16、alpha-beta 速度估计。
+6. `app/status_server.py`：状态 JSON、网页和单张 JPEG 接口。
+7. `app/preview_encoder.py`：后台按需编码并丢弃过期预览帧。
+8. `app/reference_calibration.py`：多帧平均、原子替换、标定历史和旧参考备份。
+9. `app/capture_empty_reference.py`：停止正式程序后单独采集空管基准的备用入口。
 
 不要在没有新标定和测试证据时同时修改 ROI、曝光、阈值和毫米换算。`FLAG_DETECTED=0` 或 `FLAG_REFERENCE_MISMATCH=1` 时，下位机不得使用位置闭环。
 
@@ -38,11 +39,13 @@
 
 ## UART
 
-- MaixCAM Pro：`UART1`，`A19=TX`，`A18=RX`，`/dev/ttyS1`。
+- MaixCAM Pro：`UART0`，`A16=TX`，`A17=RX`，`/dev/ttyS0`。
 - 波特率：`115200`，8N1；22 字节在 60 Hz 仅需 `13.2 kbit/s`。
 - 电平：仅允许 `3.3 V TTL`，两板可靠共地，TX/RX 交叉。
 - 多字节字段：小端序。
 - CRC：CRC16-CCITT-FALSE，`poly=0x1021`，`init=0xFFFF`，覆盖字节 `2..19`。
+
+MaixPy 默认使用 UART0 运行 Maix Comm Protocol。正式程序在打开控制串口前调用 `maix.comm.rm_default_comm_listener()` 释放该端口，然后映射 A16/A17。应用运行期间 UART0 专用于下位机控制，MaixVision 的 UART 通道不可同时使用；网页和 SSH 不受影响。
 
 | 字节 | 字段 | 类型/单位 |
 | --- | --- | --- |
@@ -91,11 +94,14 @@ curl -X POST http://10.5.66.1:8080/calibrate/empty
 
 ## 板端运行
 
-正式启动脚本：
+正式应用必须由 `/maixapp/apps/launcher/launcher_daemon` 启动，应用 ID 和入口分别为：
 
-```sh
-/root/ball_detection/current/scripts/maixcam_ball_control_launcher.sh
+```text
+ball_detection_control
+/maixapp/apps/ball_detection_control/main.py
 ```
+
+禁止在 SSH 中直接执行 `python3 app/maixcam_ball_control.py`、`nohup` 或 `scripts/maixcam_ball_control_launcher.sh`。这会绕过 Maix 应用生命周期，使 launcher UI 与检测进程同时占用媒体资源，实测会把约 `40–46 Hz` 降到约 `13 Hz`。安全启动和恢复步骤见 `docs/CODEX_HANDOFF.md`。
 
 开机应用日志：
 
@@ -103,7 +109,7 @@ curl -X POST http://10.5.66.1:8080/calibrate/empty
 /maixapp/tmp/last_run.log
 ```
 
-手动运行 `scripts/maixcam_ball_control_launcher.sh` 时日志为 `/root/ball_detection/runtime/ball_control.log`。
+`scripts/maixcam_ball_control_launcher.sh` 只保留为无 `launcher_daemon` 环境下的恢复入口；正常 MaixCAM 系统会拒绝直接运行它。
 
 状态网页为 `http://10.5.66.1:8080/`，JSON 接口为 `http://10.5.66.1:8080/status.json`，单张预览为 `http://10.5.66.1:8080/frame.jpg`。预览默认 `480x360 @ 2 FPS`、JPEG 质量 55，仅在网页请求时由后台线程编码；队列只保留最新帧。
 
@@ -117,6 +123,6 @@ curl -X POST http://10.5.66.1:8080/calibrate/empty
 python -m unittest discover -s tests -v
 ```
 
-- 电脑端和 MaixCAM 端各 16 项检测、协议、CRC、滤波、标定归档、状态页和 JPEG 接口测试通过。
+- 电脑端 17 项检测、协议、CRC、滤波、配置、标定归档、状态页和 JPEG 接口测试通过；上一版 MaixCAM 端 16 项通过，新 UART0 版本需部署后复测。
 - V3 实测无预览约 `41.93 Hz`，打开 2 FPS 预览约 `40.81 Hz`，下降约 2.7%；单张约 16.5 KB、编码约 30 ms，`preview_errors=0`、`uart_errors=0`。
 - 最终毫米精度必须在正式机械安装、重新采集空管基准并放置真实钢球后验收；合成测试不能替代实物精度测试。

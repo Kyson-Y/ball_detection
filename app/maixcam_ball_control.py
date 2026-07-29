@@ -7,7 +7,7 @@ import signal
 import time
 
 import numpy as np
-from maix import camera, err, image, pinmap, uart
+from maix import camera, comm, err, image, pinmap, uart
 
 from ball_detector import BallDetector
 from ball_uart_protocol import (
@@ -67,16 +67,25 @@ def frame_to_gray(frame, width: int, height: int) -> np.ndarray:
     return gray
 
 
+def prepare_control_uart(uart_config: dict) -> None:
+    bus = int(uart_config["bus"])
+    if bus == 0 and not comm.rm_default_comm_listener():
+        raise RuntimeError("failed to release Maix default UART0 listener")
+
+
 def open_control_uart(uart_config: dict):
+    bus = int(uart_config["bus"])
     tx_pin = str(uart_config["tx_pin"])
     rx_pin = str(uart_config["rx_pin"])
+    tx_function = f"UART{bus}_TX"
+    rx_function = f"UART{bus}_RX"
     err.check_raise(
-        pinmap.set_pin_function(tx_pin, "UART1_TX"),
-        f"failed to map {tx_pin} to UART1_TX",
+        pinmap.set_pin_function(tx_pin, tx_function),
+        f"failed to map {tx_pin} to {tx_function}",
     )
     err.check_raise(
-        pinmap.set_pin_function(rx_pin, "UART1_RX"),
-        f"failed to map {rx_pin} to UART1_RX",
+        pinmap.set_pin_function(rx_pin, rx_function),
+        f"failed to map {rx_pin} to {rx_function}",
     )
     return uart.UART(str(uart_config["device"]), int(uart_config["baud_rate"]))
 
@@ -134,6 +143,7 @@ def run(config_path: str) -> int:
     uart_errors = 0
     sequence = 0
     next_uart_open_at = 0.0
+    uart_prepared = False
     report_every_frames = int(config["logging"]["report_every_frames"])
     latest_result = None
     latest_control = None
@@ -172,6 +182,8 @@ def run(config_path: str) -> int:
         )
 
         try:
+            prepare_control_uart(uart_config)
+            uart_prepared = True
             serial_port = open_control_uart(uart_config)
             print(
                 f"uart_opened device={uart_config['device']} "
@@ -427,6 +439,9 @@ def run(config_path: str) -> int:
 
             if serial_port is None and packet_created_at >= next_uart_open_at:
                 try:
+                    if not uart_prepared:
+                        prepare_control_uart(uart_config)
+                        uart_prepared = True
                     serial_port = open_control_uart(uart_config)
                     print(
                         f"uart_reopened device={uart_config['device']} "

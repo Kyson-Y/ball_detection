@@ -51,10 +51,11 @@
     "reset_after_s": 0.2
   },
   "uart": {
-    "device": "/dev/ttyS1",
+    "bus": 0,
+    "device": "/dev/ttyS0",
     "baud_rate": 115200,
-    "tx_pin": "A19",
-    "rx_pin": "A18",
+    "tx_pin": "A16",
+    "rx_pin": "A17",
     "retry_interval_s": 2.0
   },
   "reference": {
