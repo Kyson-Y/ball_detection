@@ -143,6 +143,8 @@ class PreviewEncoder:
             label = f"BALL err={offset_px:+.1f}px {offset_mm:+.1f}mm"
         elif bool(result["reference_mismatch"]):
             label = "REFERENCE MISMATCH"
+        elif bool(result.get("measurement_rejected", False)):
+            label = "MEASUREMENT REJECTED"
         else:
             label = "NO BALL"
 

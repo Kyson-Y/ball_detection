@@ -36,7 +36,7 @@ INDEX_HTML = b"""<!doctype html>
 <script>
 const get=id=>document.getElementById(id),state=get('state'),preview=get('preview');let previewUrl=null;
 const number=(value,digits,unit)=>value===null?'--':value.toFixed(digits)+unit;
-async function refreshStatus(){try{const r=await fetch('/status.json',{cache:'no-store'});if(!r.ok)throw 0;const d=await r.json();state.classList.add('live');state.lastElementChild.textContent='LIVE';const valid=d.detected&&!d.reference_mismatch;get('detection').textContent=d.reference_mismatch?'REFERENCE':(d.detected?'YES':'NO');get('detection').className='value '+(valid?'ok':(d.reference_mismatch?'warn':'bad'));get('offsetPx').textContent=number(d.offset_px,2,' px');get('offsetMm').textContent=number(d.offset_mm,2,' mm');get('ballX').textContent=number(d.ball_x_px,2,' px');get('origin').textContent=d.origin_x_px.toFixed(2)+' px';get('control').textContent=d.control_hz.toFixed(2)+' Hz';get('uart').textContent=d.uart_hz.toFixed(2)+' Hz';get('velocity').textContent=d.velocity_valid?d.velocity_mm_s.toFixed(1)+' mm/s':'--';get('confidence').textContent=d.confidence.toFixed(3);get('temperature').textContent=d.temperature_c===null?'--':d.temperature_c.toFixed(1)+' C';get('temperature').className='value '+(d.temperature_c!==null&&d.temperature_c>=70?'warn':'')}catch(e){state.classList.remove('live');state.lastElementChild.textContent='RECONNECTING'}}
+async function refreshStatus(){try{const r=await fetch('/status.json',{cache:'no-store'});if(!r.ok)throw 0;const d=await r.json();state.classList.add('live');state.lastElementChild.textContent='LIVE';const valid=d.detected&&!d.reference_mismatch;get('detection').textContent=d.reference_mismatch?'REFERENCE':(d.detected?'YES':(d.measurement_rejected?'REJECTED':'NO'));get('detection').className='value '+(valid?'ok':(d.reference_mismatch||d.measurement_rejected?'warn':'bad'));get('offsetPx').textContent=number(d.offset_px,2,' px');get('offsetMm').textContent=number(d.offset_mm,2,' mm');get('ballX').textContent=number(d.ball_x_px,2,' px');get('origin').textContent=d.origin_x_px.toFixed(2)+' px';get('control').textContent=d.control_hz.toFixed(2)+' Hz';get('uart').textContent=d.uart_hz.toFixed(2)+' Hz';get('velocity').textContent=d.velocity_valid?d.velocity_mm_s.toFixed(1)+' mm/s':'--';get('confidence').textContent=d.confidence.toFixed(3);get('temperature').textContent=d.temperature_c===null?'--':d.temperature_c.toFixed(1)+' C';get('temperature').className='value '+(d.temperature_c!==null&&d.temperature_c>=70?'warn':'')}catch(e){state.classList.remove('live');state.lastElementChild.textContent='RECONNECTING'}}
 async function refreshFrame(){try{const r=await fetch('/frame.jpg?ts='+Date.now(),{cache:'no-store'});if(!r.ok)return;const next=URL.createObjectURL(await r.blob()),old=previewUrl;preview.onload=()=>{if(old)URL.revokeObjectURL(old)};previewUrl=next;preview.src=next}catch(e){}}
 refreshStatus();refreshFrame();setInterval(refreshStatus,250);setInterval(refreshFrame,500);
 </script>
@@ -58,7 +58,10 @@ class StatusServer:
             "control_hz": 0.0,
             "uart_hz": 0.0,
             "detected": False,
+            "raw_detected": False,
             "reference_mismatch": False,
+            "measurement_rejected": False,
+            "rejection_reason": "",
             "ball_x_px": None,
             "offset_px": None,
             "offset_mm": None,

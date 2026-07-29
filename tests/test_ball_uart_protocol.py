@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from ball_uart_protocol import (  # noqa: E402
     AlphaBetaTracker,
+    BallMeasurementGate,
     build_state_packet,
     crc16_ccitt_false,
 )
@@ -70,6 +71,72 @@ class AlphaBetaTrackerTests(unittest.TestCase):
         self.assertIsNone(tracker.predict(1.201))
         self.assertFalse(tracker.initialized)
         self.assertEqual(tracker.measurement_age_ms(1.3), 0xFFFF)
+
+
+class BallMeasurementGateTests(unittest.TestCase):
+    @staticmethod
+    def candidate(center_x, peak=500, confidence=0.8):
+        return {"center_x": center_x, "peak": peak, "confidence": confidence}
+
+    def make_gate(self):
+        return BallMeasurementGate(
+            max_speed_px_s=2500.0,
+            jump_margin_px=20.0,
+            prediction_gate_px=70.0,
+            acquire_confirm_frames=3,
+            acquire_match_radius_px=18.0,
+            acquire_min_confidence=0.15,
+            lock_timeout_s=0.35,
+            velocity_alpha=0.5,
+        )
+
+    def test_acquisition_requires_three_consistent_measurements(self):
+        gate = self.make_gate()
+        candidate = self.candidate(100.0)
+        self.assertIsNone(gate.select([candidate], 0.00)[0])
+        self.assertIsNone(gate.select([candidate], 0.02)[0])
+        selected, reason, _expected = gate.select([candidate], 0.04)
+        self.assertEqual(reason, "accepted")
+        self.assertEqual(selected["center_x"], 100.0)
+        self.assertTrue(gate.locked)
+
+    def test_far_stronger_peak_is_rejected_for_nearby_candidate(self):
+        gate = self.make_gate()
+        for timestamp in (0.00, 0.02, 0.04):
+            selected, _reason, _expected = gate.select(
+                [self.candidate(100.0)], timestamp
+            )
+        self.assertIsNotNone(selected)
+
+        selected, reason, expected = gate.select(
+            [self.candidate(610.0, peak=900), self.candidate(112.0, peak=350)],
+            0.06,
+        )
+        self.assertEqual(reason, "accepted")
+        self.assertAlmostEqual(expected, 100.0)
+        self.assertEqual(selected["center_x"], 112.0)
+
+    def test_impossible_jump_is_not_accepted(self):
+        gate = self.make_gate()
+        for timestamp in (0.00, 0.02, 0.04):
+            gate.select([self.candidate(100.0)], timestamp)
+
+        selected, reason, _expected = gate.select(
+            [self.candidate(610.0, peak=900)], 0.06
+        )
+        self.assertIsNone(selected)
+        self.assertEqual(reason, "jump_rejected")
+        self.assertEqual(gate.rejected_jumps, 1)
+        self.assertTrue(gate.locked)
+
+    def test_low_confidence_candidate_cannot_acquire_lock(self):
+        gate = self.make_gate()
+        selected, reason, _expected = gate.select(
+            [self.candidate(100.0, confidence=0.1)], 0.0
+        )
+        self.assertIsNone(selected)
+        self.assertEqual(reason, "low_confidence")
+        self.assertFalse(gate.locked)
 
 
 if __name__ == "__main__":

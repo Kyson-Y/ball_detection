@@ -12,6 +12,7 @@ from maix import camera, comm, err, image, pinmap, uart
 from ball_detector import BallDetector
 from ball_uart_protocol import (
     AlphaBetaTracker,
+    BallMeasurementGate,
     FLAG_CALIBRATION_VALID,
     FLAG_DETECTED,
     FLAG_LOW_CONFIDENCE,
@@ -102,9 +103,11 @@ def close_control_uart(serial_port) -> None:
 def run(config_path: str) -> int:
     config = load_config(config_path)
     camera_config = config["camera"]
+    alignment_config = config["alignment"]
     detector_config = config["detector"]
     calibration = config["calibration"]
     tracker_config = config["tracker"]
+    measurement_filter_config = config.get("measurement_filter", {"enabled": False})
     uart_config = config["uart"]
     reference_config = config["reference"]
     status_config = config["status_server"]
@@ -124,6 +127,30 @@ def run(config_path: str) -> int:
         ),
         reset_after_s=float(tracker_config["reset_after_s"]),
     )
+    measurement_gate = None
+    if bool(measurement_filter_config.get("enabled", False)):
+        mm_per_pixel = abs(float(calibration["mm_per_pixel"]))
+        if mm_per_pixel <= 0.0:
+            raise ValueError("measurement filtering requires positive mm_per_pixel")
+        measurement_gate = BallMeasurementGate(
+            max_speed_px_s=float(measurement_filter_config["max_speed_mm_s"])
+            / mm_per_pixel,
+            jump_margin_px=float(measurement_filter_config["jump_margin_px"]),
+            prediction_gate_px=float(
+                measurement_filter_config["prediction_gate_px"]
+            ),
+            acquire_confirm_frames=int(
+                measurement_filter_config["acquire_confirm_frames"]
+            ),
+            acquire_match_radius_px=float(
+                measurement_filter_config["acquire_match_radius_px"]
+            ),
+            acquire_min_confidence=float(
+                measurement_filter_config["acquire_min_confidence"]
+            ),
+            lock_timeout_s=float(measurement_filter_config["lock_timeout_s"]),
+            velocity_alpha=float(measurement_filter_config["velocity_alpha"]),
+        )
 
     temperature_path = str(thermal["path"])
     warning_mc = int(thermal["warning_mc"])
@@ -157,6 +184,17 @@ def run(config_path: str) -> int:
     calibration_accumulator = None
     calibration_started_at = None
     calibration_temperature_start_mc = None
+    alignment_update_every = int(alignment_config.get("update_every_frames", 0))
+    alignment_smoothing_alpha = float(alignment_config.get("smoothing_alpha", 1.0))
+    alignment_max_step_px = int(alignment_config.get("max_step_px", 0))
+    alignment_updates = 0
+    alignment_update_ms = 0.0
+    if alignment_update_every < 0:
+        raise ValueError("alignment update interval cannot be negative")
+    if not 0.0 < alignment_smoothing_alpha <= 1.0:
+        raise ValueError("alignment smoothing alpha must be in (0, 1]")
+    if alignment_max_step_px < 0:
+        raise ValueError("alignment maximum step cannot be negative")
 
     try:
         cam = camera.Camera(
@@ -244,7 +282,9 @@ def run(config_path: str) -> int:
             f"{detector.roi_w},{detector.roi_h}) "
             f"vertical_shift={vertical_shift} alignment_cost={alignment_cost:.3f} "
             f"origin_x_px={origin_x_px:.3f} "
-            f"mm_per_pixel={float(calibration['mm_per_pixel']):.8f}",
+            f"mm_per_pixel={float(calibration['mm_per_pixel']):.8f} "
+            f"alignment_update_every={alignment_update_every} "
+            f"measurement_filter={int(measurement_gate is not None)}",
             flush=True,
         )
 
@@ -269,6 +309,8 @@ def run(config_path: str) -> int:
                         temperature_path
                     )
                     tracker.reset()
+                    if measurement_gate is not None:
+                        measurement_gate.reset()
                     print(
                         "empty_calibration_started "
                         f"target_frames={calibration_accumulator.target_frames}",
@@ -316,6 +358,8 @@ def run(config_path: str) -> int:
                         vertical_shift = new_vertical_shift
                         alignment_cost = new_alignment_cost
                         tracker.reset()
+                        if measurement_gate is not None:
+                            measurement_gate.reset()
                         status_server.finish_empty_calibration(
                             metadata["calibration_id"]
                         )
@@ -335,11 +379,14 @@ def run(config_path: str) -> int:
                     calibration_started_at = None
                     calibration_temperature_start_mc = None
                     tracker.reset()
+                    if measurement_gate is not None:
+                        measurement_gate.reset()
                     print(f"empty_calibration_error error={exc!r}", flush=True)
 
             if calibration_frame:
                 latest_result = {
                     "detected": False,
+                    "raw_detected": False,
                     "reference_mismatch": True,
                     "center_x": 0.0,
                     "center_y": detector.roi_h / 2.0,
@@ -348,13 +395,82 @@ def run(config_path: str) -> int:
                     "threshold": 0,
                     "confidence": 0.0,
                     "brightness_offset": 0,
+                    "local_brightness_offset_max": 0,
                     "changed_ratio": 0.0,
                     "vertical_shift": int(vertical_shift),
                     "alignment_cost": float(alignment_cost),
                     "roi_y": detector.roi_y + int(vertical_shift),
+                    "candidates": [],
+                    "candidate_count": 0,
+                    "raw_center_x": None,
+                    "measurement_rejected": False,
+                    "rejection_reason": "calibrating",
+                    "expected_center_x": None,
+                    "filter_locked": False,
                 }
             else:
+                if (
+                    detector.alignment_enabled
+                    and alignment_update_every > 0
+                    and (frames + 1) % alignment_update_every == 0
+                ):
+                    alignment_started_at = time.monotonic()
+                    measured_shift, measured_cost = detector.estimate_vertical_shift(gray)
+                    shift_delta = measured_shift - vertical_shift
+                    if alignment_max_step_px > 0:
+                        shift_delta = max(
+                            -alignment_max_step_px,
+                            min(alignment_max_step_px, shift_delta),
+                        )
+                    vertical_shift = int(
+                        round(vertical_shift + alignment_smoothing_alpha * shift_delta)
+                    )
+                    vertical_shift = max(
+                        detector.shift_min,
+                        min(detector.shift_max, vertical_shift),
+                    )
+                    alignment_cost = measured_cost
+                    alignment_updates += 1
+                    alignment_update_ms = (
+                        time.monotonic() - alignment_started_at
+                    ) * 1000.0
+
                 latest_result = detector.detect(gray, vertical_shift, alignment_cost)
+                if measurement_gate is not None:
+                    gate_candidates = (
+                        []
+                        if latest_result["reference_mismatch"]
+                        else latest_result["candidates"]
+                    )
+                    selected, rejection_reason, expected_center_x = (
+                        measurement_gate.select(gate_candidates, capture_monotonic_s)
+                    )
+                    if selected is None:
+                        latest_result["detected"] = False
+                        latest_result["offset_x"] = None
+                        latest_result["confidence"] = 0.0
+                    else:
+                        latest_result["detected"] = True
+                        latest_result["center_x"] = float(selected["center_x"])
+                        latest_result["center_y"] = float(selected["center_y"])
+                        latest_result["offset_x"] = float(selected["offset_x"])
+                        latest_result["peak"] = int(selected["peak"])
+                        latest_result["confidence"] = float(selected["confidence"])
+                    latest_result["measurement_rejected"] = bool(
+                        latest_result["raw_detected"]
+                        and selected is None
+                        and not latest_result["reference_mismatch"]
+                    )
+                    latest_result["rejection_reason"] = (
+                        "reference_mismatch"
+                        if latest_result["reference_mismatch"]
+                        else rejection_reason
+                    )
+                    latest_result["expected_center_x"] = expected_center_x
+                    latest_result["filter_locked"] = bool(measurement_gate.locked)
+                else:
+                    latest_result["expected_center_x"] = None
+                    latest_result["filter_locked"] = False
             frames += 1
             report_frames += 1
 
@@ -537,8 +653,22 @@ def run(config_path: str) -> int:
                         "control_hz": control_hz,
                         "uart_hz": uart_hz,
                         "detected": bool(latest_result["detected"]),
+                        "raw_detected": bool(latest_result["raw_detected"]),
                         "reference_mismatch": bool(
                             latest_result["reference_mismatch"]
+                        ),
+                        "measurement_rejected": bool(
+                            latest_result["measurement_rejected"]
+                        ),
+                        "rejection_reason": str(latest_result["rejection_reason"]),
+                        "candidate_count": int(latest_result["candidate_count"]),
+                        "raw_center_x": latest_result["raw_center_x"],
+                        "expected_center_x": latest_result["expected_center_x"],
+                        "filter_locked": bool(latest_result["filter_locked"]),
+                        "rejected_jumps": (
+                            0
+                            if measurement_gate is None
+                            else measurement_gate.rejected_jumps
                         ),
                         "ball_x_px": ball_x_px,
                         "offset_px": ball_offset_px,
@@ -548,6 +678,15 @@ def run(config_path: str) -> int:
                         "velocity_mm_s": velocity_mm_s,
                         "velocity_valid": bool(velocity_valid),
                         "confidence": float(latest_result["confidence"]),
+                        "changed_ratio": float(latest_result["changed_ratio"]),
+                        "brightness_offset": int(latest_result["brightness_offset"]),
+                        "local_brightness_offset_max": int(
+                            latest_result["local_brightness_offset_max"]
+                        ),
+                        "vertical_shift": int(latest_result["vertical_shift"]),
+                        "alignment_cost": float(latest_result["alignment_cost"]),
+                        "alignment_updates": alignment_updates,
+                        "alignment_update_ms": alignment_update_ms,
                         "temperature_c": (
                             None
                             if temperature_mc is None
@@ -572,14 +711,19 @@ def run(config_path: str) -> int:
                     f"frames={frames} detection_fps={report_frames / elapsed:.2f} "
                     f"uart_fps={report_uart_packets / elapsed:.2f} "
                     f"detected={int(latest_result['detected'])} "
+                    f"raw_detected={int(latest_result['raw_detected'])} "
                     f"reference_mismatch={int(latest_result['reference_mismatch'])} "
                     f"x_px={latest_result['center_x']:.3f} "
+                    f"candidates={latest_result['candidate_count']} "
+                    f"filter={latest_result['rejection_reason']} "
                     f"position_mm={latest_control['center_offset_mm']:.3f} "
                     f"velocity_mm_s={latest_control['velocity_mm_s']:.3f} "
                     f"age_ms={latest_control['age_ms']} "
                     f"flags=0x{latest_control['flags']:02X} "
                     f"confidence={latest_result['confidence']:.3f} "
                     f"changed_ratio={latest_result['changed_ratio']:.4f} "
+                    f"vertical_shift={latest_result['vertical_shift']} "
+                    f"alignment_ms={alignment_update_ms:.3f} "
                     f"temperature_c={temperature_text} uart_errors={uart_errors}",
                     flush=True,
                 )

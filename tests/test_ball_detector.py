@@ -58,6 +58,27 @@ class BallDetectorTests(unittest.TestCase):
         self.assertFalse(result["reference_mismatch"])
         self.assertEqual(result["brightness_offset"], 12)
 
+    def test_local_brightness_gradient_is_compensated(self):
+        roi_y = self.config["roi"]["y"]
+        gradient = np.linspace(-24, 24, 640, dtype=np.int16)
+        roi = np.full((100, 640), 100, dtype=np.int16) + gradient[None, :]
+        self.frame[roi_y : roi_y + 100] = roi.astype(np.uint8)
+        result = self.detector.detect(self.frame, 0, 0.0)
+        self.assertFalse(result["detected"])
+        self.assertFalse(result["reference_mismatch"])
+        self.assertGreater(result["local_brightness_offset_max"], 0)
+
+    def test_multiple_separated_changes_return_multiple_candidates(self):
+        roi_y = self.config["roi"]["y"]
+        self.frame[roi_y + 10 : roi_y + 42, 90:112] = 155
+        self.frame[roi_y + 12 : roi_y + 44, 500:522] = 155
+        result = self.detector.detect(self.frame, 0, 0.0)
+        self.assertTrue(result["raw_detected"])
+        self.assertGreaterEqual(result["candidate_count"], 2)
+        centers = [candidate["center_x"] for candidate in result["candidates"]]
+        self.assertTrue(any(abs(center - 100.5) < 3.0 for center in centers))
+        self.assertTrue(any(abs(center - 510.5) < 3.0 for center in centers))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -37,6 +37,27 @@
 
 钢球不需要是规则二值圆；算法检测的是它相对空管基准造成的局部变化。全局变化比例超过 `0.45` 时判定参考失配并清除有效输出。
 
+## 轻量误识别过滤
+
+正式程序仍然是原来的 `app/maixcam_ball_control.py`，没有新增第二套识别入口，也没有改变标定文件和 UART 协议。每帧处理顺序补充为：
+
+```text
+周期更新水管上下位置
+-> 全局亮度补偿 + 限幅局部亮度补偿
+-> 空管差分和二值化
+-> 一维投影并保留最多 5 个候选峰
+-> 面积、宽度和高度初筛
+-> 首次出现连续 3 帧确认
+-> 已锁定时按预测位置、最大速度和跳变门限选择候选
+-> 不可能跳变不更新滤波器，清除 DETECTED
+-> 合法测量进入 alpha-beta 位置与速度估计
+-> UART 发送
+```
+
+默认最大钢球速度为 `800 mm/s`，瞬时跳变余量为 `20 px`，预测窗口为 `70 px`。因此远处反光即使响应更强，只要原轨迹附近仍有合法候选，就优先保留原目标；如果没有合法候选，本帧显示 `REJECTED`，而不是输出远处坐标。参数集中在 `alignment`、`detector` 和 `measurement_filter` 三个配置段。
+
+状态接口增加 `raw_detected`、`measurement_rejected`、`rejection_reason`、`candidate_count`、`raw_center_x`、`expected_center_x`、`filter_locked`、`rejected_jumps`、`vertical_shift` 和 `alignment_update_ms`，用于区分“没有差分目标”和“发现目标但因不符合物理运动被拒绝”。
+
 ## UART
 
 - MaixCAM Pro：`UART0`，`A16=TX`，`A17=RX`，`/dev/ttyS0`。
@@ -123,6 +144,6 @@ ball_detection_control
 python -m unittest discover -s tests -v
 ```
 
-- 电脑端 17 项检测、协议、CRC、滤波、配置、标定归档、状态页和 JPEG 接口测试通过；上一版 MaixCAM 端 16 项通过，新 UART0 版本需部署后复测。
+- 电脑端 24 项检测、候选选择、跳变拒绝、协议、CRC、滤波、配置、标定归档、状态页和 JPEG 接口测试通过；本次轻量误检过滤仍需部署到 MaixCAM 后复测实际帧率和实物效果。
 - V3 实测无预览约 `41.93 Hz`，打开 2 FPS 预览约 `40.81 Hz`，下降约 2.7%；单张约 16.5 KB、编码约 30 ms，`preview_errors=0`、`uart_errors=0`。
 - 最终毫米精度必须在正式机械安装、重新采集空管基准并放置真实钢球后验收；合成测试不能替代实物精度测试。

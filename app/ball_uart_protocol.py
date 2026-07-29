@@ -174,3 +174,166 @@ class AlphaBetaTracker:
 
     def state(self):
         return self.position_mm, self.velocity_mm_s, self.velocity_valid
+
+
+class BallMeasurementGate:
+    def __init__(
+        self,
+        *,
+        max_speed_px_s: float,
+        jump_margin_px: float,
+        prediction_gate_px: float,
+        acquire_confirm_frames: int,
+        acquire_match_radius_px: float,
+        acquire_min_confidence: float,
+        lock_timeout_s: float,
+        velocity_alpha: float = 0.5,
+    ) -> None:
+        if max_speed_px_s <= 0.0:
+            raise ValueError("maximum speed must be positive")
+        if jump_margin_px < 0.0 or prediction_gate_px <= 0.0:
+            raise ValueError("invalid measurement gate distances")
+        if acquire_confirm_frames <= 0:
+            raise ValueError("acquisition confirmation must be positive")
+        if acquire_match_radius_px < 0.0:
+            raise ValueError("acquisition radius cannot be negative")
+        if not 0.0 <= acquire_min_confidence <= 1.0:
+            raise ValueError("acquisition confidence must be in [0, 1]")
+        if lock_timeout_s <= 0.0:
+            raise ValueError("lock timeout must be positive")
+        if not 0.0 < velocity_alpha <= 1.0:
+            raise ValueError("velocity alpha must be in (0, 1]")
+
+        self.max_speed_px_s = float(max_speed_px_s)
+        self.jump_margin_px = float(jump_margin_px)
+        self.prediction_gate_px = float(prediction_gate_px)
+        self.acquire_confirm_frames = int(acquire_confirm_frames)
+        self.acquire_match_radius_px = float(acquire_match_radius_px)
+        self.acquire_min_confidence = float(acquire_min_confidence)
+        self.lock_timeout_s = float(lock_timeout_s)
+        self.velocity_alpha = float(velocity_alpha)
+        self.reset()
+
+    def reset(self) -> None:
+        self.locked = False
+        self.position_px = 0.0
+        self.velocity_px_s = 0.0
+        self.last_measurement_time_s = None
+        self.pending_x_px = None
+        self.pending_time_s = None
+        self.pending_count = 0
+        self.rejected_jumps = 0
+        self.last_reason = "reset"
+
+    def _clear_pending(self) -> None:
+        self.pending_x_px = None
+        self.pending_time_s = None
+        self.pending_count = 0
+
+    def _accept(self, candidate: dict, timestamp_s: float) -> dict:
+        center_x = float(candidate["center_x"])
+        if self.locked and self.last_measurement_time_s is not None:
+            dt = timestamp_s - self.last_measurement_time_s
+            if dt > 0.0:
+                measured_velocity = (center_x - self.position_px) / dt
+                measured_velocity = max(
+                    -self.max_speed_px_s,
+                    min(self.max_speed_px_s, measured_velocity),
+                )
+                self.velocity_px_s = (
+                    (1.0 - self.velocity_alpha) * self.velocity_px_s
+                    + self.velocity_alpha * measured_velocity
+                )
+        else:
+            self.velocity_px_s = 0.0
+        self.locked = True
+        self.position_px = center_x
+        self.last_measurement_time_s = timestamp_s
+        self._clear_pending()
+        self.last_reason = "accepted"
+        return candidate
+
+    def _acquire(self, candidates: list[dict], timestamp_s: float):
+        eligible = [
+            candidate
+            for candidate in candidates
+            if float(candidate.get("confidence", 0.0)) >= self.acquire_min_confidence
+        ]
+        if not eligible:
+            self._clear_pending()
+            self.last_reason = "low_confidence" if candidates else "no_candidate"
+            return None, self.last_reason, None
+
+        candidate = max(eligible, key=lambda item: int(item.get("peak", 0)))
+        center_x = float(candidate["center_x"])
+        if self.pending_x_px is None or self.pending_time_s is None:
+            self.pending_x_px = center_x
+            self.pending_time_s = timestamp_s
+            self.pending_count = 1
+        else:
+            dt = timestamp_s - self.pending_time_s
+            allowed = self.acquire_match_radius_px + self.max_speed_px_s * max(0.0, dt)
+            if dt < 0.0 or abs(center_x - self.pending_x_px) > allowed:
+                self.pending_x_px = center_x
+                self.pending_count = 1
+            else:
+                self.pending_x_px = center_x
+                self.pending_count += 1
+            self.pending_time_s = timestamp_s
+
+        if self.pending_count >= self.acquire_confirm_frames:
+            accepted = self._accept(candidate, timestamp_s)
+            return accepted, "accepted", center_x
+        self.last_reason = "acquiring"
+        return None, self.last_reason, center_x
+
+    def select(self, candidates: list[dict], timestamp_s: float):
+        timestamp_s = float(timestamp_s)
+        if not math.isfinite(timestamp_s):
+            raise ValueError("measurement timestamp must be finite")
+
+        if not self.locked or self.last_measurement_time_s is None:
+            return self._acquire(candidates, timestamp_s)
+
+        age_s = timestamp_s - self.last_measurement_time_s
+        if age_s < 0.0:
+            self.reset()
+            return self._acquire(candidates, timestamp_s)
+        if age_s > self.lock_timeout_s:
+            self.locked = False
+            self.velocity_px_s = 0.0
+            self.last_measurement_time_s = None
+            self._clear_pending()
+            return self._acquire(candidates, timestamp_s)
+
+        expected_x = self.position_px + self.velocity_px_s * age_s
+        max_from_last = self.jump_margin_px + self.max_speed_px_s * age_s
+        eligible = []
+        for candidate in candidates:
+            center_x = float(candidate["center_x"])
+            if abs(center_x - self.position_px) > max_from_last:
+                continue
+            if abs(center_x - expected_x) > self.prediction_gate_px:
+                continue
+            eligible.append(candidate)
+
+        if not eligible:
+            self.last_reason = "jump_rejected" if candidates else "no_candidate"
+            if candidates:
+                self.rejected_jumps += 1
+            return None, self.last_reason, expected_x
+
+        strongest_peak = max(1, max(int(item.get("peak", 0)) for item in eligible))
+
+        def tracked_score(candidate: dict) -> float:
+            peak_score = int(candidate.get("peak", 0)) / strongest_peak
+            distance_score = 1.0 - min(
+                1.0,
+                abs(float(candidate["center_x"]) - expected_x)
+                / self.prediction_gate_px,
+            )
+            return 0.65 * peak_score + 0.35 * distance_score
+
+        selected = max(eligible, key=tracked_score)
+        accepted = self._accept(selected, timestamp_s)
+        return accepted, "accepted", expected_x

@@ -50,6 +50,41 @@ must call `maix.comm.rm_default_comm_listener()` once before mapping A16/A17 and
 opening `/dev/ttyS0`. Do not remove this release step and do not let MaixVision
 UART traffic share the control port. Web and SSH diagnostics remain available.
 
+## Lightweight False-Positive Suppression
+
+The production entry point is unchanged. Filtering is added to the existing
+detector and control loop; there is no second vision script or camera owner.
+
+1. Every fourth frame, estimate the pipe's vertical shift. Limit one update to
+   6 px and apply a 0.5 smoothing factor before moving the ROI.
+2. Subtract the global brightness offset, then estimate a smoothed per-column
+   residual offset. Local correction is capped at 12 gray levels so geometry
+   changes cannot be completely hidden as illumination changes.
+3. Threshold the empty-pipe difference and project it to the original 1-D
+   response. Keep up to five separated peaks that pass minimum area, width, and
+   height checks instead of committing immediately to the global maximum.
+4. Initial acquisition requires three consistent frames and confidence >= 0.15.
+5. Once locked, choose only candidates compatible with the previous position
+   and velocity. `max_speed_mm_s=800`, a 20 px jump margin, and a 70 px
+   prediction gate reject a left-to-right teleport while retaining nearby weaker
+   candidates when a distant reflection has a stronger response.
+6. A rejected measurement does not update the alpha-beta tracker. UART clears
+   `FLAG_DETECTED`; a short-lived tracker estimate may still be sent with
+   `FLAG_PREDICTED`, and the receiver must continue honoring all flags.
+7. A lock is retained for 0.35 s of missing measurements. Reacquisition then
+   again requires three consistent frames.
+
+Useful `/status.json` fields are `raw_detected`, `measurement_rejected`,
+`rejection_reason`, `candidate_count`, `raw_center_x`, `expected_center_x`,
+`filter_locked`, `rejected_jumps`, `vertical_shift`, `alignment_cost`, and
+`alignment_update_ms`. The web page shows `REJECTED` when a raw difference peak
+exists but fails measurement validation.
+
+These checks prevent impossible measurements from reaching control; they do not
+make arbitrary pipe rotation equivalent to calibration. Two endpoint markers or
+pipe-coordinate rectification are still required if mechanical fixing cannot
+keep rotation and perspective changes small.
+
 ## 2026-07-30 Frame-Rate Incident
 
 At LAN address `192.168.43.87`, diagnostics observed:

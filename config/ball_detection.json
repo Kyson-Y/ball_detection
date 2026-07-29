@@ -26,7 +26,10 @@
     "profile_x0": 60,
     "profile_x1": 580,
     "profile_x_step": 4,
-    "difference_cap": 40
+    "difference_cap": 40,
+    "update_every_frames": 4,
+    "smoothing_alpha": 0.5,
+    "max_step_px": 6
   },
   "detector": {
     "pixel_diff_threshold": 18,
@@ -35,7 +38,16 @@
     "min_peak_response": 100,
     "peak_mad_multiplier": 4.0,
     "max_changed_ratio": 0.45,
-    "low_confidence_threshold": 0.2
+    "low_confidence_threshold": 0.2,
+    "local_brightness_enabled": true,
+    "local_brightness_sample_step": 4,
+    "local_brightness_window_px": 31,
+    "local_brightness_max_offset": 12,
+    "max_candidates": 5,
+    "candidate_suppression_px": 28,
+    "min_candidate_changed_pixels": 100,
+    "min_candidate_width_px": 6,
+    "min_candidate_height_px": 6
   },
   "calibration": {
     "center_x_px": 320.0,
@@ -49,6 +61,17 @@
     "beta": 0.2,
     "velocity_valid_measurements": 3,
     "reset_after_s": 0.2
+  },
+  "measurement_filter": {
+    "enabled": true,
+    "max_speed_mm_s": 800.0,
+    "jump_margin_px": 20.0,
+    "prediction_gate_px": 70.0,
+    "acquire_confirm_frames": 3,
+    "acquire_match_radius_px": 18.0,
+    "acquire_min_confidence": 0.15,
+    "lock_timeout_s": 0.35,
+    "velocity_alpha": 0.5
   },
   "uart": {
     "bus": 0,
