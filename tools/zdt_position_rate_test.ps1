@@ -192,7 +192,7 @@ function Get-TrackingSamples {
             $Bytes[$index + 1] -ne 0x5A -or
             $Bytes[$index + 2] -ne 1 -or
             $Bytes[$index + 3] -ne 15 -or
-            $payloadLength -notin @(104, 148) -or
+            $payloadLength -notin @(104, 148, 156) -or
             $index + $frameLength -gt $Bytes.Length) {
             continue
         }

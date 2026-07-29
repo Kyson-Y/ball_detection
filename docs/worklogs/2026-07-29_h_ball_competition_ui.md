@@ -32,3 +32,34 @@ Target: the board reporting on `COM18`, CMSIS-DAP serial `2e4c7219`.
 
 The target was reset after debugger validation and left in the normal READY,
 output-locked startup state.
+
+## Generation-2 ZDT qualification for the H mechanism
+
+The bare generation-2 X42S/Emm motor was connected to UART3 and qualified
+before installing the linkage or pipe. The H-problem limits used for this
+assessment were a `+5 cm -> -5 cm` ball move within 5 s and ball-position error
+within 1 cm. Motor angle tracking is only the inner actuator requirement; the
+complete ball requirement still needs the camera, linkage and pipe.
+
+- Device address `0x01`, firmware `200`, hardware `8970`, 115200 8N1.
+- A relative `+15 deg` command measured `+14.952 deg`; return-to-baseline error
+  was `0.011 deg`.
+- Positive and negative speed feedback reached `+29/-29 rpm`; explicit stop
+  and the 1.5 s speed lease both returned speed to zero.
+- For a `+/-5 deg`, 1 Hz sine target, requested/effective update rates and
+  tracking errors were:
+
+| Requested | Effective | RMS error | Maximum error | Strict rate result |
+| --- | --- | --- | --- | --- |
+| 20 Hz | 20.0 Hz | 1.507 deg | 2.342 deg | pass |
+| 30 Hz | 27.7 Hz | 1.345 deg | 2.348 deg | pass |
+| 50 Hz | 43.7 Hz | 1.125 deg | 1.925 deg | below 90% rate threshold |
+| 100 Hz | 89.7 Hz | 0.899 deg | 1.622 deg | below 90% rate threshold |
+| 200 Hz | 151.7 Hz | 0.873 deg | 1.585 deg | below 90% rate threshold |
+
+All tests returned exactly to the captured center, with zero UART timeout,
+invalid response, stall or stall-protection event. The useful H-control choice
+is a 30 Hz vision output loop with motor targets allowed to refresh at 50 Hz.
+Higher request rates add little angular accuracy and should not be the initial
+competition setting. The final state was backend deselected, motor disabled,
+motion inactive and speed zero.
