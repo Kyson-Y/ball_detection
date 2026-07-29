@@ -27,7 +27,7 @@
     "profile_x1": 580,
     "profile_x_step": 4,
     "difference_cap": 40,
-    "update_every_frames": 4,
+    "update_every_frames": 0,
     "smoothing_alpha": 0.5,
     "max_step_px": 6
   },
@@ -39,7 +39,7 @@
     "peak_mad_multiplier": 4.0,
     "max_changed_ratio": 0.45,
     "low_confidence_threshold": 0.2,
-    "local_brightness_enabled": true,
+    "local_brightness_enabled": false,
     "local_brightness_sample_step": 4,
     "local_brightness_window_px": 31,
     "local_brightness_max_offset": 12,

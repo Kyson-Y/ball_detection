@@ -23,10 +23,10 @@ class RuntimeConfigTests(unittest.TestCase):
         self.assertEqual(uart["rx_pin"], "A17")
         self.assertEqual(uart["baud_rate"], 115200)
 
-    def test_lightweight_false_positive_filters_are_enabled(self):
+    def test_lightweight_false_positive_filters_preserve_frame_rate(self):
         config = self.load_config()
-        self.assertGreater(config["alignment"]["update_every_frames"], 0)
-        self.assertTrue(config["detector"]["local_brightness_enabled"])
+        self.assertEqual(config["alignment"]["update_every_frames"], 0)
+        self.assertFalse(config["detector"]["local_brightness_enabled"])
         self.assertGreaterEqual(config["detector"]["max_candidates"], 2)
         self.assertTrue(config["measurement_filter"]["enabled"])
         self.assertGreaterEqual(

@@ -42,8 +42,8 @@
 正式程序仍然是原来的 `app/maixcam_ball_control.py`，没有新增第二套识别入口，也没有改变标定文件和 UART 协议。每帧处理顺序补充为：
 
 ```text
-周期更新水管上下位置
--> 全局亮度补偿 + 限幅局部亮度补偿
+启动时校正一次水管上下位置
+-> 全局亮度补偿
 -> 空管差分和二值化
 -> 一维投影并保留最多 5 个候选峰
 -> 面积、宽度和高度初筛
@@ -57,6 +57,8 @@
 默认最大钢球速度为 `800 mm/s`，瞬时跳变余量为 `20 px`，预测窗口为 `70 px`。因此远处反光即使响应更强，只要原轨迹附近仍有合法候选，就优先保留原目标；如果没有合法候选，本帧显示 `REJECTED`，而不是输出远处坐标。参数集中在 `alignment`、`detector` 和 `measurement_filter` 三个配置段。
 
 状态接口增加 `raw_detected`、`measurement_rejected`、`rejection_reason`、`candidate_count`、`raw_center_x`、`expected_center_x`、`filter_locked`、`rejected_jumps`、`vertical_shift` 和 `alignment_update_ms`，用于区分“没有差分目标”和“发现目标但因不符合物理运动被拒绝”。
+
+板端实测动态上下对齐单次约 `192 ms`，每帧局部亮度补偿额外约 `17 ms`，因此正式配置把 `alignment.update_every_frames` 设为 `0`、把 `detector.local_brightness_enabled` 设为 `false`。两段可选实现仍保留用于后续优化，但当前不能在要求高帧率时打开。
 
 ## UART
 

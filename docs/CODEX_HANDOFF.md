@@ -55,11 +55,10 @@ UART traffic share the control port. Web and SSH diagnostics remain available.
 The production entry point is unchanged. Filtering is added to the existing
 detector and control loop; there is no second vision script or camera owner.
 
-1. Every fourth frame, estimate the pipe's vertical shift. Limit one update to
-   6 px and apply a 0.5 smoothing factor before moving the ROI.
-2. Subtract the global brightness offset, then estimate a smoothed per-column
-   residual offset. Local correction is capped at 12 gray levels so geometry
-   changes cannot be completely hidden as illumination changes.
+1. Estimate the pipe's vertical shift once at startup. Periodic alignment code
+   remains available but `update_every_frames=0` disables it by default.
+2. Subtract the original global brightness offset. Optional per-column local
+   correction remains implemented but is disabled by default.
 3. Threshold the empty-pipe difference and project it to the original 1-D
    response. Keep up to five separated peaks that pass minimum area, width, and
    height checks instead of committing immediately to the global maximum.
@@ -84,6 +83,13 @@ These checks prevent impossible measurements from reaching control; they do not
 make arbitrary pipe rotation equivalent to calibration. Two endpoint markers or
 pipe-coordinate rectification are still required if mechanical fixing cannot
 keep rotation and perspective changes small.
+
+Board profiling on 2026-07-30 measured one vertical alignment update at about
+`192 ms`; running it every four frames reduced the logged control rate to about
+`11.5 Hz`. Synthetic ROI profiling measured optional local brightness correction
+at about `+17 ms` per detection. Keep both options disabled for production until
+they are replaced with cheaper implementations. Multiple candidates plus the
+measurement gate added only about 4-6% over the old detector in the same profile.
 
 ## 2026-07-30 Frame-Rate Incident
 

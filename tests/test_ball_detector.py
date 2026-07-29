@@ -1,3 +1,4 @@
+import copy
 import json
 import sys
 import unittest
@@ -59,11 +60,14 @@ class BallDetectorTests(unittest.TestCase):
         self.assertEqual(result["brightness_offset"], 12)
 
     def test_local_brightness_gradient_is_compensated(self):
+        config = copy.deepcopy(self.config)
+        config["detector"]["local_brightness_enabled"] = True
+        detector = BallDetector(config, self.reference)
         roi_y = self.config["roi"]["y"]
         gradient = np.linspace(-24, 24, 640, dtype=np.int16)
         roi = np.full((100, 640), 100, dtype=np.int16) + gradient[None, :]
         self.frame[roi_y : roi_y + 100] = roi.astype(np.uint8)
-        result = self.detector.detect(self.frame, 0, 0.0)
+        result = detector.detect(self.frame, 0, 0.0)
         self.assertFalse(result["detected"])
         self.assertFalse(result["reference_mismatch"])
         self.assertGreater(result["local_brightness_offset_max"], 0)
