@@ -2,6 +2,19 @@
 
 最后核对日期：2026-07-30（Asia/Shanghai）
 
+## 2026-07-30 OLED/按键显示响应修复
+
+- H3 滚球遥测接入后，UART0 DMA 长时间繁忙。DisplayTask 原来只尝试直接抢占
+  quiet window，没有登记 priority request；20 秒板测仅完成 37 次刷新，申请被延后
+  1062 次，因此 MAIN 页姿态和按键操作在视觉上近似冻结。
+- DisplayTask 现在先调用 `SerialTx_RequestPriorityQuietWindow()`，再通过
+  `SerialTx_TryBeginRequestedQuietWindow()` 获取窗口。只修改 OLED/UART 仲裁，不修改
+  IMU、控制算法、任务状态机或数据来源。
+- 修复后 10 秒板测完成 122 次刷新（约 12.2 Hz），I2C 错误 0、SystemTask deadline 0，
+  DisplayTask 最低栈余量 274 words。IMU 本身始终在线，物理按键扫描和 UI 注入事件链正常。
+- App 全量重建 `0 Error / 0 Warning`，`Code=110984, RO=3876, RW=188, ZI=24616`；
+  HEX SHA-256 为 `AD9ED481422FAAA92D047F16938CE07F8196A46204DBD8A4DB63DB63F80D0D31`。
+
 ## 2026-07-30 H3 MaixCAM 钢球视觉闭环（UART2 已实测，视觉连续性待修）
 
 - 视觉权威来源为 `Kyson-Y/ball_detection`，本轮核对最新提交 `510c47c`。UART 协议仍为

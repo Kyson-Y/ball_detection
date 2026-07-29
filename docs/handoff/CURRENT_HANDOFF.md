@@ -2,10 +2,22 @@
 
 ```yaml
 handoff_schema: 1
-updated_at: 2026-07-30T06:40:00+08:00
+updated_at: 2026-07-30T07:15:00+08:00
 updated_by: Codex
-status: h3_uart2_hardware_validated_vision_continuity_blocked
+status: oled_ui_refresh_fairness_fixed
 ```
+
+## 当前任务：OLED/按键显示响应修复
+
+- 正式仓库 `E:\ECHO`、分支 `main`。H3 滚球遥测使 UART0 DMA 长时间繁忙，旧 DisplayTask
+  未登记 priority request，导致 20 秒只有 37 次 OLED 刷新、1062 次窗口延后；IMU 本身正常。
+- DisplayTask 已改为 request + claim 的公平 quiet-window 流程，不修改控制、IMU、页面数据源
+  和按键逻辑。修复后 10 秒 OLED 刷新 122 次，I2C 错误 0、deadline 0、显示栈余量 274 words。
+- App 全量重建 0 Error / 0 Warning，HEX SHA-256
+  `AD9ED481422FAAA92D047F16938CE07F8196A46204DBD8A4DB63DB63F80D0D31`，已烧录运行。
+- 本机 uVision 会话曾从项目中移除三个 H3 源文件；已恢复项目项并确认全量重建包含
+  `ball_vision.c`、`ball_balance_service.c`、`ball_position_controller.c`。
+- 用户已有的 `ECHO.uvmpw` 与 `freertos/keil/freertos_ECHO.uvprojx` 改动继续保留，不暂存。
 
 ## 当前任务：H3 MaixCAM 钢球视觉闭环
 

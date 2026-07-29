@@ -75,8 +75,9 @@ static bool DisplayTask_TryBeginIoWindow(void)
 {
     TickType_t start_tick = xTaskGetTickCount();
 
+    SerialTx_RequestPriorityQuietWindow();
     for (;;) {
-        if (SerialTx_TryBeginPriorityQuietWindow()) {
+        if (SerialTx_TryBeginRequestedQuietWindow()) {
             g_display_task_diag.io_window_acquired_count++;
             return true;
         }
