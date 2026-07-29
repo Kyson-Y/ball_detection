@@ -21,6 +21,7 @@ from ball_uart_protocol import (
     FLAG_VELOCITY_VALID,
     build_state_packet,
 )
+from status_server import StatusServer
 
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -95,6 +96,7 @@ def run(config_path: str) -> int:
     tracker_config = config["tracker"]
     uart_config = config["uart"]
     reference_config = config["reference"]
+    status_config = config["status_server"]
     thermal = config["thermal"]
 
     width = int(camera_config["width"])
@@ -122,6 +124,7 @@ def run(config_path: str) -> int:
 
     cam = None
     serial_port = None
+    status_server = None
     frames = 0
     uart_packets = 0
     uart_errors = 0
@@ -130,6 +133,10 @@ def run(config_path: str) -> int:
     report_every_frames = int(config["logging"]["report_every_frames"])
     latest_result = None
     latest_control = None
+    control_hz = 0.0
+    uart_hz = 0.0
+    last_control_at = None
+    last_uart_at = None
 
     try:
         cam = camera.Camera(
@@ -168,6 +175,15 @@ def run(config_path: str) -> int:
                 uart_config["retry_interval_s"]
             )
             print(f"uart_open_error count={uart_errors} error={exc!r}", flush=True)
+
+        if bool(status_config["enabled"]):
+            try:
+                status_server = StatusServer(int(status_config["port"]))
+                status_server.start()
+                print(f"status_server_started port={status_server.port}", flush=True)
+            except Exception as exc:
+                status_server = None
+                print(f"status_server_error error={exc!r}", flush=True)
 
         report_started = time.monotonic()
         report_frames = 0
@@ -294,6 +310,15 @@ def run(config_path: str) -> int:
                         )
                     uart_packets += 1
                     report_uart_packets += 1
+                    uart_sent_at = time.monotonic()
+                    if last_uart_at is not None and uart_sent_at > last_uart_at:
+                        instant_uart_hz = min(120.0, 1.0 / (uart_sent_at - last_uart_at))
+                        uart_hz = (
+                            instant_uart_hz
+                            if uart_hz <= 0.0
+                            else 0.9 * uart_hz + 0.1 * instant_uart_hz
+                        )
+                    last_uart_at = uart_sent_at
                 except Exception as exc:
                     uart_errors += 1
                     if uart_errors <= 3:
@@ -303,9 +328,49 @@ def run(config_path: str) -> int:
                         )
                     close_control_uart(serial_port)
                     serial_port = None
+                    uart_hz = 0.0
+                    last_uart_at = None
                     next_uart_open_at = time.monotonic() + float(
                         uart_config["retry_interval_s"]
                     )
+
+            loop_completed_at = time.monotonic()
+            if last_control_at is not None and loop_completed_at > last_control_at:
+                instant_control_hz = min(
+                    120.0, 1.0 / (loop_completed_at - last_control_at)
+                )
+                control_hz = (
+                    instant_control_hz
+                    if control_hz <= 0.0
+                    else 0.9 * control_hz + 0.1 * instant_control_hz
+                )
+            last_control_at = loop_completed_at
+            if serial_port is None:
+                uart_hz = 0.0
+
+            if status_server is not None:
+                status_server.update(
+                    {
+                        "control_hz": control_hz,
+                        "uart_hz": uart_hz,
+                        "detected": bool(latest_result["detected"]),
+                        "reference_mismatch": bool(
+                            latest_result["reference_mismatch"]
+                        ),
+                        "position_mm": center_offset_mm,
+                        "velocity_mm_s": velocity_mm_s,
+                        "velocity_valid": bool(velocity_valid),
+                        "confidence": float(latest_result["confidence"]),
+                        "temperature_c": (
+                            None
+                            if temperature_mc is None
+                            else temperature_mc / 1000.0
+                        ),
+                        "flags": flags,
+                        "uart_errors": uart_errors,
+                        "frames": frames,
+                    }
+                )
 
             if report_frames >= report_every_frames:
                 now = time.monotonic()
@@ -336,6 +401,8 @@ def run(config_path: str) -> int:
 
         return 0
     finally:
+        if status_server is not None:
+            status_server.stop()
         close_control_uart(serial_port)
         if cam is not None:
             try:

@@ -3,7 +3,7 @@
   "camera": {
     "width": 640,
     "height": 480,
-    "fps": 30.0,
+    "fps": 60.0,
     "buffer_count": 3,
     "hmirror": 0,
     "vflip": 0,
@@ -61,6 +61,10 @@
     "path": "/root/ball_detection/runtime/empty_pipe_reference.npy",
     "capture_fps": 15.0,
     "capture_frames": 32
+  },
+  "status_server": {
+    "enabled": true,
+    "port": 8080
   },
   "thermal": {
     "path": "/sys/class/thermal/thermal_zone0/temp",

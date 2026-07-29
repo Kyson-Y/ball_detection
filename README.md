@@ -1,6 +1,6 @@
 # MaixCAM Pro 钢球位置检测与控制输出
 
-本工程使用 MaixCAM Pro 从固定俯视相机中检测半圆水管内钢球的一维位置，并通过 UART 向 MSPM0G3507（天猛星）发送位置、速度和状态。正式程序不做网页或视频传输，当前相机模式为 `640x480 @ 30 FPS`。
+本工程使用 MaixCAM Pro 从固定俯视相机中检测半圆水管内钢球的一维位置，并通过 UART 向 MSPM0G3507（天猛星）发送位置、速度和状态。正式程序不传输图像或视频，只提供轻量状态网页，当前请求模式为 `640x480 @ 60 FPS`，网页显示实际控制频率。
 
 ## 给队友和 AI 的快速入口
 
@@ -10,7 +10,8 @@
 2. `app/maixcam_ball_control.py`：正式实时主循环。
 3. `app/ball_detector.py`：空管差分、一维投影、峰值和质心。
 4. `app/ball_uart_protocol.py`：22 字节协议、CRC16、alpha-beta 速度估计。
-5. `app/capture_empty_reference.py`：最终安装后重采空管基准。
+5. `app/status_server.py`：无图像编码的轻量状态网页。
+6. `app/capture_empty_reference.py`：最终安装后重采空管基准。
 
 不要在没有新标定和测试证据时同时修改 ROI、曝光、阈值和毫米换算。`FLAG_DETECTED=0` 或 `FLAG_REFERENCE_MISMATCH=1` 时，下位机不得使用位置闭环。
 
@@ -93,6 +94,8 @@ AA 55 01 01 16 23 E8 03 40 E2 01 00 EA 00 82 FF E6 00 03 00 21 9A
 
 手动运行 `scripts/maixcam_ball_control_launcher.sh` 时日志为 `/root/ball_detection/runtime/ball_control.log`。
 
+状态网页为 `http://10.5.66.1:8080/`，JSON 接口为 `http://10.5.66.1:8080/status.json`。网页只显示控制频率和状态，不进行图像编码。
+
 开机启动应用 ID 为 `ball_detection_control`，入口是 `/maixapp/apps/ball_detection_control/main.py`。`scripts/enable_autostart.sh` 把该 ID 写入 `/maixapp/auto_start.txt`；`disable_autostart.sh` 恢复原文件。任何时候只能有一个进程占用相机，停止程序只能对已核验 PID 使用 `SIGTERM`。
 
 ## 测试与当前证据
@@ -103,6 +106,6 @@ AA 55 01 01 16 23 E8 03 40 E2 01 00 EA 00 82 FF E6 00 03 00 21 9A
 python -m unittest discover -s tests -v
 ```
 
-- 9 项检测、协议、CRC 和滤波测试通过。
-- MaixCAM 无图传正式版实测大多数窗口 `29.87..30.12 Hz`，UART 发送率与检测率一致，`uart_errors=0`。
+- 11 项检测、协议、CRC、滤波和状态网页测试通过。
+- 相机请求 `60 FPS`，驱动确认进入 `GC4653 720P 60fps` 模式；当前 `640x480` 检测与 UART 稳定约 `44.4..45.2 Hz`，代码没有 30 Hz 等待限速。状态页按 4 Hz 轮询未见降速，`uart_errors=0`，实测温度约 `46.2 C`。
 - 最终毫米精度必须在正式机械安装、重新采集空管基准并放置真实钢球后验收；合成测试不能替代实物精度测试。
