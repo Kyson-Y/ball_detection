@@ -13,6 +13,7 @@
 #include "command_service.h"
 #include "competition_service.h"
 #include "esp_uart_link_test.h"
+#include "h_mission_service.h"
 #include "imu_service.h"
 #include "motor_profile.h"
 #include "mpu6050.h"
@@ -62,6 +63,7 @@ int main(void)
     SerialRx_Init();
     ParameterService_Init();
     CompetitionService_Init();
+    HMissionService_Init();
     CommandService_Init();
     RtosDiagnostics_Init(BSP_TIME_FREQUENCY_HZ);
     SystemHealth_Init();

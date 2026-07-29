@@ -18,8 +18,7 @@
 #define COMPETITION_ANGLE_MAX_DECI_DEG 3600
 #define COMPETITION_TURN_MIN_DECI_RPM   150U
 #define COMPETITION_TURN_MAX_DECI_RPM   350U
-#define COMPETITION_SETTINGS_FIELD_COUNT 6U
-#define COMPETITION_TEST_FIELD_COUNT     5U
+#define COMPETITION_TEST_FIELD_COUNT     7U
 #define COMPETITION_HEALTH_CHECK_MS    1500U
 
 volatile competition_service_snapshot_t g_competition_service;
@@ -31,6 +30,7 @@ static uint32_t s_parameter_transaction_id;
 static bool s_launch_test;
 static bool s_wait_start_release;
 static uint32_t s_health_check_start_ms;
+static uint32_t s_input_guard_until_ms;
 
 static int32_t CompetitionService_Abs(int32_t value)
 {
@@ -109,10 +109,34 @@ static void CompetitionService_MarkDirty(uint32_t now_ms)
     g_competition_service.save_pending = 1U;
 }
 
-static void CompetitionService_StopActive(void)
+static void CompetitionService_StartTimer(uint32_t now_ms, bool test)
+{
+    g_competition_service.run_start_ms = now_ms;
+    g_competition_service.run_elapsed_ms = 0U;
+    g_competition_service.run_count++;
+    g_competition_service.run_is_test = test ? 1U : 0U;
+    g_competition_service.run_has_started = 1U;
+}
+
+static void CompetitionService_UpdateTimer(uint32_t now_ms)
+{
+    if (g_competition_service.run_has_started != 0U &&
+        g_competition_service.state == (uint8_t) COMPETITION_STATE_RUNNING) {
+        g_competition_service.run_elapsed_ms =
+            now_ms - g_competition_service.run_start_ms;
+    }
+}
+
+static void CompetitionService_StopTimer(uint32_t now_ms)
+{
+    CompetitionService_UpdateTimer(now_ms);
+}
+
+static void CompetitionService_StopActive(uint32_t now_ms)
 {
     uint8_t slot = g_competition_service.settings.task_slot;
 
+    CompetitionService_StopTimer(now_ms);
     if (!s_launch_test && slot < COMPETITION_TASK_SLOT_COUNT &&
         s_missions[slot].stop != NULL) {
         s_missions[slot].stop(s_missions[slot].context);
@@ -120,6 +144,7 @@ static void CompetitionService_StopActive(void)
     ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_EMERGENCY);
     g_competition_service.emergency_stop_count++;
     g_competition_service.result = (uint8_t) COMPETITION_RESULT_ABORT;
+    s_input_guard_until_ms = now_ms + 150U;
     CompetitionService_SetState(COMPETITION_STATE_ABORTED);
 }
 
@@ -131,12 +156,15 @@ static void CompetitionService_BeginCountdown(bool test, uint32_t now_ms)
         (uint32_t) g_competition_service.settings.start_delay_s * 1000U;
     g_competition_service.result = (uint8_t) COMPETITION_RESULT_NONE;
     g_competition_service.motion_applied = 0U;
+    g_competition_service.run_has_started = 0U;
+    g_competition_service.run_elapsed_ms = 0U;
+    g_competition_service.run_is_test = test ? 1U : 0U;
     s_wait_start_release = true;
-    g_competition_service.page = (uint8_t) COMPETITION_PAGE_RUN;
+    g_competition_service.page = (uint8_t) COMPETITION_PAGE_MAIN;
     CompetitionService_SetState(COMPETITION_STATE_COUNTDOWN);
 }
 
-static void CompetitionService_StartTest(void)
+static void CompetitionService_StartTest(uint32_t now_ms)
 {
     chassis_actuator_debug_request_t request;
     chassis_actuator_command_status_t status;
@@ -175,6 +203,7 @@ static void CompetitionService_StartTest(void)
     }
     status = ChassisActuator_StageDebugRequest(&request);
     if (status == CHASSIS_ACTUATOR_COMMAND_STAGED) {
+        CompetitionService_StartTimer(now_ms, true);
         CompetitionService_SetState(COMPETITION_STATE_RUNNING);
     } else {
         g_competition_service.result =
@@ -183,7 +212,7 @@ static void CompetitionService_StartTest(void)
     }
 }
 
-static void CompetitionService_StartMission(void)
+static void CompetitionService_StartMission(uint32_t now_ms)
 {
     uint8_t slot = g_competition_service.settings.task_slot;
 
@@ -195,6 +224,7 @@ static void CompetitionService_StartMission(void)
             (uint8_t) COMPETITION_RESULT_NO_TASK;
         CompetitionService_SetState(COMPETITION_STATE_RESULT);
     } else if (s_missions[slot].start(s_missions[slot].context)) {
+        CompetitionService_StartTimer(now_ms, false);
         CompetitionService_SetState(COMPETITION_STATE_RUNNING);
     } else {
         ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_REJECTED);
@@ -234,35 +264,34 @@ static void CompetitionService_AdjustUnsigned(uint16_t *value,
     *value = (uint16_t) next;
 }
 
-static void CompetitionService_AdjustField(bool settings_page,
-    bool increase, uint32_t now_ms)
+static void CompetitionService_AdjustField(bool increase, uint32_t now_ms)
 {
     competition_settings_t *settings =
         (competition_settings_t *) &g_competition_service.settings;
     uint8_t field = g_competition_service.cursor;
 
-    if (!settings_page && field == 0U) {
-        settings->test_action = (settings->test_action == 0U) ? 1U : 0U;
-    } else if ((settings_page && field == 0U)) {
+    if (field == 0U) {
         settings->task_slot = (uint8_t) ((settings->task_slot +
             (increase ? 1U : COMPETITION_TASK_SLOT_COUNT - 1U)) %
             COMPETITION_TASK_SLOT_COUNT);
-    } else if (field == (settings_page ? 1U : 1U)) {
+    } else if (field == 1U) {
+        settings->test_action = (settings->test_action == 0U) ? 1U : 0U;
+    } else if (field == 2U) {
         CompetitionService_AdjustSigned(&settings->distance_mm, 100,
             COMPETITION_DISTANCE_MIN_MM, COMPETITION_DISTANCE_MAX_MM,
             increase);
-    } else if (field == (settings_page ? 2U : 2U)) {
+    } else if (field == 3U) {
         CompetitionService_AdjustUnsigned(&settings->speed_deci_rpm, 50U,
             COMPETITION_SPEED_MIN_DECI_RPM,
             COMPETITION_SPEED_MAX_DECI_RPM, increase);
-    } else if (field == (settings_page ? 3U : 3U)) {
+    } else if (field == 4U) {
         CompetitionService_AdjustSigned(&settings->angle_deci_deg, 150,
             10, COMPETITION_ANGLE_MAX_DECI_DEG, increase);
-    } else if (field == (settings_page ? 4U : 4U)) {
+    } else if (field == 5U) {
         CompetitionService_AdjustUnsigned(&settings->turn_speed_deci_rpm,
             50U, COMPETITION_TURN_MIN_DECI_RPM,
             COMPETITION_TURN_MAX_DECI_RPM, increase);
-    } else if (settings_page && field == 5U) {
+    } else if (field == 6U) {
         int32_t delay = settings->start_delay_s + (increase ? 1 : -1);
 
         if (delay < 0) {
@@ -379,15 +408,21 @@ void CompetitionService_Init(void)
     g_control_tuning_params.kd = settings.pid_kd;
     g_control_tuning_params.target = settings.pid_target;
     g_competition_service.state = (uint8_t) COMPETITION_STATE_READY;
-    g_competition_service.page = (uint8_t) COMPETITION_PAGE_TASK;
+    g_competition_service.page = (uint8_t) COMPETITION_PAGE_MAIN;
+    g_competition_service.diag_view = 0U;
+    g_competition_service.run_is_test = 0U;
+    g_competition_service.run_has_started = 0U;
     g_competition_service.request_sequence = 0xC0000000UL;
     s_parameter_transaction_id = 0xF2000000UL;
+    s_input_guard_until_ms = 0U;
     (void) ChassisActuator_SetPivotMaximumRpm(
         (float) settings.turn_speed_deci_rpm * 0.1f);
 }
 
 void CompetitionService_Service(uint32_t now_ms)
 {
+    CompetitionService_UpdateTimer(now_ms);
+
     if (g_competition_service.health_check_state ==
             (uint8_t) COMPETITION_HEALTH_CHECK_RUNNING &&
         (uint32_t) (now_ms - s_health_check_start_ms) >=
@@ -406,9 +441,9 @@ void CompetitionService_Service(uint32_t now_ms)
         if (elapsed >= total) {
             g_competition_service.countdown_remaining_ms = 0U;
             if (s_launch_test) {
-                CompetitionService_StartTest();
+                CompetitionService_StartTest(now_ms);
             } else {
-                CompetitionService_StartMission();
+                CompetitionService_StartMission(now_ms);
             }
         } else {
             g_competition_service.countdown_remaining_ms = total - elapsed;
@@ -424,10 +459,12 @@ void CompetitionService_Service(uint32_t now_ms)
                 g_chassis_actuator_diag.output_permitted == 0U) {
                 if (g_chassis_actuator_diag.last_stop_reason ==
                         (uint8_t) CHASSIS_ACTUATOR_STOP_COMPLETE) {
+                    CompetitionService_StopTimer(now_ms);
                     g_competition_service.result =
                         (uint8_t) COMPETITION_RESULT_OK;
                     CompetitionService_SetState(COMPETITION_STATE_RESULT);
                 } else {
+                    CompetitionService_StopTimer(now_ms);
                     g_competition_service.result =
                         (uint8_t) COMPETITION_RESULT_MOTION_FAULT;
                     CompetitionService_SetState(COMPETITION_STATE_FAULT);
@@ -439,6 +476,7 @@ void CompetitionService_Service(uint32_t now_ms)
                 s_missions[slot].service(s_missions[slot].context, now_ms);
 
             if (status != COMPETITION_MISSION_RUNNING) {
+                CompetitionService_StopTimer(now_ms);
                 ChassisActuator_ForceSafe(status ==
                     COMPETITION_MISSION_COMPLETE ?
                     CHASSIS_ACTUATOR_STOP_COMPLETE :
@@ -470,7 +508,8 @@ void CompetitionService_Service(uint32_t now_ms)
     }
 }
 
-void CompetitionService_ServicePhysicalButtons(uint8_t pressed_mask)
+void CompetitionService_ServicePhysicalButtons(uint8_t pressed_mask,
+    uint32_t now_ms)
 {
     if (s_wait_start_release) {
         if (pressed_mask == 0U) {
@@ -483,7 +522,7 @@ void CompetitionService_ServicePhysicalButtons(uint8_t pressed_mask)
             (uint8_t) COMPETITION_STATE_RUNNING ||
          g_competition_service.state ==
             (uint8_t) COMPETITION_STATE_COUNTDOWN)) {
-        CompetitionService_StopActive();
+        CompetitionService_StopActive(now_ms);
     }
 }
 
@@ -495,11 +534,14 @@ void CompetitionService_HandleEvent(ui_input_event_t event,
     if (event.kind == UI_EVENT_NONE || event.kind == UI_EVENT_TIMEOUT) {
         return;
     }
+    if ((int32_t) (now_ms - s_input_guard_until_ms) < 0) {
+        return;
+    }
     if (g_competition_service.state ==
             (uint8_t) COMPETITION_STATE_RUNNING ||
         g_competition_service.state ==
             (uint8_t) COMPETITION_STATE_COUNTDOWN) {
-        CompetitionService_StopActive();
+        CompetitionService_StopActive(now_ms);
         return;
     }
     if (g_competition_service.advanced_mode != 0U) {
@@ -507,14 +549,16 @@ void CompetitionService_HandleEvent(ui_input_event_t event,
         return;
     }
     if (g_competition_service.page ==
-            (uint8_t) COMPETITION_PAGE_SYSTEM &&
+            (uint8_t) COMPETITION_PAGE_DIAG &&
+        g_competition_service.diag_view == 0U &&
         event.key == UI_KEY_OK && event.kind == UI_EVENT_LONG_PRESS) {
         ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_NONE);
         (void) ImuService_RequestRecalibration();
         return;
     }
     if (g_competition_service.page ==
-            (uint8_t) COMPETITION_PAGE_HEALTH &&
+            (uint8_t) COMPETITION_PAGE_DIAG &&
+        g_competition_service.diag_view != 0U &&
         event.key == UI_KEY_OK && event.kind == UI_EVENT_LONG_PRESS) {
         ChassisActuator_ForceSafe(CHASSIS_ACTUATOR_STOP_NONE);
         if (ZdtStepper_StartDiagnosticScan()) {
@@ -529,7 +573,7 @@ void CompetitionService_HandleEvent(ui_input_event_t event,
         return;
     }
     if (g_competition_service.page ==
-            (uint8_t) COMPETITION_PAGE_TASK) {
+            (uint8_t) COMPETITION_PAGE_MAIN) {
         if ((event.kind == UI_EVENT_PRESS ||
              event.kind == UI_EVENT_REPEAT) &&
             (event.key == UI_KEY_UP || event.key == UI_KEY_DOWN)) {
@@ -544,38 +588,41 @@ void CompetitionService_HandleEvent(ui_input_event_t event,
             return;
         }
         if (event.key == UI_KEY_OK && event.kind == UI_EVENT_PRESS) {
-            CompetitionService_SetState(
+            if (g_competition_service.state ==
+                    (uint8_t) COMPETITION_STATE_RESULT ||
                 g_competition_service.state ==
-                    (uint8_t) COMPETITION_STATE_ARMED ?
-                    COMPETITION_STATE_READY : COMPETITION_STATE_ARMED);
-            return;
-        }
-        if (event.key == UI_KEY_OK && event.kind == UI_EVENT_LONG_PRESS &&
-            g_competition_service.state ==
-                (uint8_t) COMPETITION_STATE_ARMED) {
-            CompetitionService_BeginCountdown(false, now_ms);
+                    (uint8_t) COMPETITION_STATE_ABORTED ||
+                g_competition_service.state ==
+                    (uint8_t) COMPETITION_STATE_FAULT) {
+                g_competition_service.result =
+                    (uint8_t) COMPETITION_RESULT_NONE;
+                g_competition_service.run_has_started = 0U;
+                CompetitionService_SetState(COMPETITION_STATE_READY);
+            } else if (g_competition_service.state ==
+                    (uint8_t) COMPETITION_STATE_READY) {
+                s_launch_test = false;
+                s_wait_start_release = true;
+                g_competition_service.result =
+                    (uint8_t) COMPETITION_RESULT_NONE;
+                g_competition_service.motion_applied = 0U;
+                g_competition_service.page =
+                    (uint8_t) COMPETITION_PAGE_MAIN;
+                CompetitionService_StartMission(now_ms);
+            }
             return;
         }
     } else if (g_competition_service.page ==
-            (uint8_t) COMPETITION_PAGE_TEST ||
-        g_competition_service.page ==
-            (uint8_t) COMPETITION_PAGE_SETTINGS) {
-        bool settings_page = g_competition_service.page ==
-            (uint8_t) COMPETITION_PAGE_SETTINGS;
-
-        field_count = settings_page ? COMPETITION_SETTINGS_FIELD_COUNT :
-            COMPETITION_TEST_FIELD_COUNT;
-        if (!settings_page && event.key == UI_KEY_OK &&
+            (uint8_t) COMPETITION_PAGE_TEST) {
+        field_count = COMPETITION_TEST_FIELD_COUNT;
+        if (event.key == UI_KEY_OK &&
             event.kind == UI_EVENT_LONG_PRESS &&
             g_competition_service.editing == 0U) {
-            CompetitionService_BeginCountdown(true, now_ms);
-            return;
-        }
-        if (settings_page && event.key == UI_KEY_OK &&
-            event.kind == UI_EVENT_LONG_PRESS &&
-            g_competition_service.editing == 0U) {
-            g_competition_service.advanced_mode = 1U;
-            g_competition_service.advanced_parameter_index = 0U;
+            if (g_competition_service.cursor == 0U) {
+                g_competition_service.advanced_mode = 1U;
+                g_competition_service.advanced_parameter_index = 0U;
+            } else {
+                CompetitionService_BeginCountdown(true, now_ms);
+            }
             return;
         }
         if (event.key == UI_KEY_OK && event.kind == UI_EVENT_PRESS) {
@@ -588,7 +635,7 @@ void CompetitionService_HandleEvent(ui_input_event_t event,
              event.kind == UI_EVENT_REPEAT) &&
             (event.key == UI_KEY_UP || event.key == UI_KEY_DOWN ||
              event.key == UI_KEY_LEFT || event.key == UI_KEY_RIGHT)) {
-            CompetitionService_AdjustField(settings_page,
+            CompetitionService_AdjustField(
                 event.key == UI_KEY_UP || event.key == UI_KEY_RIGHT,
                 now_ms);
             return;
@@ -608,6 +655,14 @@ void CompetitionService_HandleEvent(ui_input_event_t event,
             }
             return;
         }
+    } else if (g_competition_service.page ==
+            (uint8_t) COMPETITION_PAGE_DIAG &&
+        g_competition_service.editing == 0U &&
+        (event.kind == UI_EVENT_PRESS || event.kind == UI_EVENT_REPEAT) &&
+        (event.key == UI_KEY_UP || event.key == UI_KEY_DOWN)) {
+        g_competition_service.diag_view = (event.key == UI_KEY_DOWN) ?
+            1U : 0U;
+        return;
     }
 
     if (g_competition_service.editing == 0U &&

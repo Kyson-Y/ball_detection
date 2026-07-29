@@ -117,7 +117,8 @@ void ServiceTask_Entry(void *context)
             uint8_t pressed_mask = BSP_Buttons_ReadPressedMask();
 
             last_button_sample_time = now;
-            CompetitionService_ServicePhysicalButtons(pressed_mask);
+            CompetitionService_ServicePhysicalButtons(pressed_mask,
+                (uint32_t) now);
             UiInput_ServicePhysical(pressed_mask,
                 (uint32_t) now);
         }

@@ -30,6 +30,8 @@ extern volatile ssd1306_diagnostics_t g_ssd1306_diag;
 bool Ssd1306_Init(void);
 void Ssd1306_Clear(void);
 void Ssd1306_DrawText(uint8_t x, uint8_t page, const char *text);
+void Ssd1306_DrawTextScaled(uint8_t x, uint8_t y, const char *text,
+    uint8_t scale);
 bool Ssd1306_Refresh(void);
 void Ssd1306_BeginRefresh(void);
 ssd1306_refresh_step_result_t Ssd1306_RefreshStep(void);

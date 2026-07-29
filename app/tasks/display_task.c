@@ -61,7 +61,6 @@ static float DisplayTask_WrapDegrees(float value)
     }
     return value;
 }
-
 static TickType_t DisplayTask_ActivePeriod(void)
 {
     return (g_competition_service.state ==
@@ -121,6 +120,11 @@ static void DisplayTask_Render(void)
     data->supply_valid =
         (g_bsp_supply_voltage_diag.last_conversion_ok != 0U) &&
         data->battery_mv >= 8000U && data->battery_mv <= 18000U;
+    data->imu_available = ECHO_ENABLE_IMU;
+    data->oled_available = ECHO_ENABLE_OLED;
+    data->reflectance_available = ECHO_ENABLE_REFLECTANCE;
+    data->esp_available = ECHO_ENABLE_ESP_LINK;
+    data->lidar_available = ECHO_ENABLE_TFMINI;
     data->uptime_s = data->health.uptime_ticks / configTICK_RATE_HZ;
     attitude_valid = AttitudeEstimator_GetSnapshot(attitude);
     if (ImuService_GetSnapshot(imu)) {

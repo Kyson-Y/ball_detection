@@ -8,7 +8,7 @@
 #include "ui_input.h"
 
 #define COMPETITION_TASK_SLOT_COUNT 5U
-#define COMPETITION_PAGE_COUNT      7U
+#define COMPETITION_PAGE_COUNT      4U
 
 typedef enum {
     COMPETITION_STATE_READY = 0U,
@@ -21,13 +21,10 @@ typedef enum {
 } competition_state_t;
 
 typedef enum {
-    COMPETITION_PAGE_TASK = 0U,
-    COMPETITION_PAGE_RUN,
+    COMPETITION_PAGE_MAIN = 0U,
     COMPETITION_PAGE_TEST,
     COMPETITION_PAGE_TUNE,
-    COMPETITION_PAGE_SETTINGS,
-    COMPETITION_PAGE_HEALTH,
-    COMPETITION_PAGE_SYSTEM
+    COMPETITION_PAGE_DIAG
 } competition_page_t;
 
 typedef enum {
@@ -72,6 +69,9 @@ typedef struct {
     uint32_t request_sequence;
     uint32_t countdown_remaining_ms;
     uint32_t health_check_count;
+    uint32_t run_start_ms;
+    uint32_t run_elapsed_ms;
+    uint32_t run_count;
     float advanced_draft_value;
     uint8_t state;
     uint8_t page;
@@ -83,7 +83,9 @@ typedef struct {
     uint8_t save_pending;
     uint8_t motion_applied;
     uint8_t health_check_state;
-    uint8_t reserved[2];
+    uint8_t diag_view;
+    uint8_t run_is_test;
+    uint8_t run_has_started;
 } competition_service_snapshot_t;
 
 extern volatile competition_service_snapshot_t g_competition_service;
@@ -92,7 +94,8 @@ void CompetitionService_Init(void);
 void CompetitionService_Service(uint32_t now_ms);
 void CompetitionService_HandleEvent(ui_input_event_t event,
     uint32_t now_ms);
-void CompetitionService_ServicePhysicalButtons(uint8_t pressed_mask);
+void CompetitionService_ServicePhysicalButtons(uint8_t pressed_mask,
+    uint32_t now_ms);
 bool CompetitionService_RegisterMission(uint8_t slot,
     const competition_mission_t *mission);
 void CompetitionService_GetSnapshot(

@@ -2,8 +2,9 @@
 
 #include <stddef.h>
 
-#include "ssd1306.h"
+#include "h_mission_service.h"
 #include "imu_service.h"
+#include "ssd1306.h"
 
 #define COMPETITION_UI_LINE_CHARS 21U
 
@@ -88,13 +89,21 @@ static void Line_Voltage(competition_ui_line_t *line, uint32_t mv)
     Line_Char(line, 'V');
 }
 
+static void Line_SignedFixed1(competition_ui_line_t *line, float value)
+{
+    if (value >= 0.0f) {
+        Line_Char(line, '+');
+    }
+    Line_Fixed1(line, value);
+}
+
 static void Draw(uint8_t row, const competition_ui_line_t *line)
 {
     Ssd1306_DrawText(0U, row, line->text);
 }
 
 static void DrawHeader(const char *name,
-    const competition_page_data_t *data)
+    const competition_page_data_t *data, const char *badge)
 {
     competition_ui_line_t line;
 
@@ -103,116 +112,19 @@ static void DrawHeader(const char *name,
     Line_Text(&line, "  ");
     Line_Text(&line, CompetitionService_StateName(
         (competition_state_t) data->competition.state));
-    Draw(0U, &line);
-}
-
-static void DrawFooter(const competition_page_data_t *data)
-{
-    competition_ui_line_t line;
-
-    Line_Clear(&line);
-    Line_Text(&line, "PAGE ");
-    Line_U32(&line, (uint32_t) data->competition.page + 1U);
-    Line_Text(&line, "/7");
     if (data->competition.save_pending != 0U) {
-        Line_Text(&line, " SAVE");
+        Line_Text(&line, " S");
     }
-    Draw(7U, &line);
-}
-
-static void DrawLiveValues(const competition_page_data_t *data,
-    uint8_t start_row)
-{
-    competition_ui_line_t line;
-
-    Line_Clear(&line);
-    Line_Text(&line, "BAT:");
-    if (data->supply_valid != 0U) {
-        Line_Voltage(&line, data->battery_mv);
-    } else {
-        Line_Text(&line, "--");
+    if (badge != NULL && *badge != '\0') {
+        Line_Char(&line, ' ');
+        Line_Text(&line, badge);
     }
-    Line_Text(&line, " Y:");
-    if (data->imu_ready != 0U) {
-        Line_Fixed1(&line, data->yaw_deg);
-    } else {
-        Line_Text(&line, "--");
+    while (line.length < 18U) {
+        Line_Char(&line, ' ');
     }
-    Draw(start_row, &line);
-
-    Line_Clear(&line);
-    Line_Text(&line, "RPM L:");
-    Line_Fixed1(&line, data->left_rpm);
-    Line_Text(&line, " R:");
-    Line_Fixed1(&line, data->right_rpm);
-    Draw((uint8_t) (start_row + 1U), &line);
-}
-
-static void RenderTask(const competition_page_data_t *data)
-{
-    competition_ui_line_t line;
-
-    DrawHeader("TASK", data);
-    Line_Clear(&line);
-    Line_Text(&line, "SLOT:T");
-    Line_U32(&line, (uint32_t) data->competition.settings.task_slot + 1U);
-    Line_Text(&line, " EMPTY");
-    Draw(1U, &line);
-    Line_Clear(&line);
-    Line_Text(&line, "MISSION:PLACEHOLDER");
-    Draw(2U, &line);
-    Line_Clear(&line);
-    Line_Text(&line, "TEMP:");
-    if (data->imu_ready != 0U) {
-        Line_Fixed1(&line, data->temperature_c);
-        Line_Char(&line, 'C');
-    } else {
-        Line_Text(&line, "--");
-    }
-    Draw(3U, &line);
-    DrawLiveValues(data, 4U);
-    Line_Clear(&line);
-    Line_Text(&line, "OUT:");
-    Line_Text(&line, data->health.actuator_output_permitted ? "ON" : "LOCK");
-    Draw(6U, &line);
-    DrawFooter(data);
-}
-
-static void RenderRun(const competition_page_data_t *data)
-{
-    competition_ui_line_t line;
-
-    DrawHeader("RUN", data);
-    Line_Clear(&line);
-    if (data->competition.state ==
-        (uint8_t) COMPETITION_STATE_COUNTDOWN) {
-        Line_Text(&line, "START IN:");
-        Line_U32(&line,
-            (data->competition.countdown_remaining_ms + 999U) / 1000U);
-        Line_Text(&line, "s");
-    } else {
-        Line_Text(&line, "RESULT:");
-        Line_Text(&line, CompetitionService_ResultName(
-            (competition_result_t) data->competition.result));
-    }
-    Draw(1U, &line);
-    DrawLiveValues(data, 2U);
-    Line_Clear(&line);
-    Line_Text(&line, "DIST:");
-    Line_Fixed1(&line, data->distance_progress_mm);
-    Line_Text(&line, "mm");
-    Line_Text(&line, " STOP:");
-    Line_U32(&line, data->competition.emergency_stop_count);
-    Draw(4U, &line);
-    Line_Clear(&line);
-    Line_Text(&line, "REQ:");
-    Line_U32(&line, data->competition.request_sequence);
-    Draw(5U, &line);
-    Line_Clear(&line);
-    Line_Text(&line, "OUT:");
-    Line_Text(&line, data->health.actuator_output_permitted ? "ACTIVE" : "SAFE");
-    Draw(6U, &line);
-    DrawFooter(data);
+    Line_U32(&line, (uint32_t) data->competition.page + 1U);
+    Line_Text(&line, "/4");
+    Draw(0U, &line);
 }
 
 static void DrawSelectPrefix(competition_ui_line_t *line,
@@ -223,202 +135,9 @@ static void DrawSelectPrefix(competition_ui_line_t *line,
         data->competition.editing != 0U ? '*' : ' ');
 }
 
-static void RenderTest(const competition_page_data_t *data)
-{
-    competition_ui_line_t line;
-
-    DrawHeader("TEST", data);
-    Line_Clear(&line);
-    DrawSelectPrefix(&line, data, 0U);
-    Line_Text(&line, "MODE:");
-    Line_Text(&line, data->competition.settings.test_action ==
-        (uint8_t) COMPETITION_TEST_DISTANCE ? "DIST" : "TURN");
-    Draw(1U, &line);
-    Line_Clear(&line);
-    DrawSelectPrefix(&line, data, 1U);
-    Line_Text(&line, "DIST:");
-    Line_I32(&line, data->competition.settings.distance_mm);
-    Line_Text(&line, "mm");
-    Draw(2U, &line);
-    Line_Clear(&line);
-    DrawSelectPrefix(&line, data, 2U);
-    Line_Text(&line, "SPD:");
-    Line_Fixed1(&line,
-        (float) data->competition.settings.speed_deci_rpm * 0.1f);
-    Line_Text(&line, "rpm");
-    Draw(3U, &line);
-    Line_Clear(&line);
-    DrawSelectPrefix(&line, data, 3U);
-    Line_Text(&line, "ANG:");
-    Line_Fixed1(&line,
-        (float) data->competition.settings.angle_deci_deg * 0.1f);
-    Line_Text(&line, "deg");
-    Draw(4U, &line);
-    Line_Clear(&line);
-    DrawSelectPrefix(&line, data, 4U);
-    Line_Text(&line, "TRN:");
-    Line_Fixed1(&line,
-        (float) data->competition.settings.turn_speed_deci_rpm * 0.1f);
-    Line_Text(&line, "rpm");
-    Draw(5U, &line);
-    Line_Clear(&line);
-    Line_Text(&line, "DELAY:");
-    Line_U32(&line, data->competition.settings.start_delay_s);
-    Line_Text(&line, "s");
-    Draw(6U, &line);
-    DrawFooter(data);
-}
-
-static void Line_SignedFixed1(competition_ui_line_t *line, float value)
-{
-    if (value >= 0.0f) {
-        Line_Char(line, '+');
-    }
-    Line_Fixed1(line, value);
-}
-
-static void RenderTune(const competition_page_data_t *data)
-{
-    competition_ui_line_t line;
-
-    Line_Clear(&line);
-    Line_Text(&line, "TUNE  ");
-    Line_Text(&line, CompetitionService_StateName(
-        (competition_state_t) data->competition.state));
-    if (data->tune_boost_active != 0U) {
-        Line_Text(&line, " B");
-    }
-    Draw(0U, &line);
-
-    Line_Clear(&line);
-    Line_Text(&line, "       L      R");
-    Draw(1U, &line);
-
-    Line_Clear(&line);
-    Line_Text(&line, "TGT  ");
-    Line_Fixed1(&line, data->tune_left_target_rpm);
-    Line_Char(&line, ' ');
-    Line_Fixed1(&line, data->tune_right_target_rpm);
-    Draw(2U, &line);
-
-    Line_Clear(&line);
-    Line_Text(&line, "RPM  ");
-    Line_Fixed1(&line, data->tune_left_measured_rpm);
-    Line_Char(&line, ' ');
-    Line_Fixed1(&line, data->tune_right_measured_rpm);
-    Draw(3U, &line);
-
-    Line_Clear(&line);
-    Line_Text(&line, "PWM  ");
-    Line_Fixed1(&line, data->tune_left_pwm_percent);
-    Line_Char(&line, '%');
-    Line_Char(&line, ' ');
-    Line_Fixed1(&line, data->tune_right_pwm_percent);
-    Line_Char(&line, '%');
-    if (data->tune_pwm_saturated != 0U) {
-        Line_Text(&line, " SAT");
-    }
-    Draw(4U, &line);
-
-    Line_Clear(&line);
-    Line_Text(&line, "ERR  ");
-    Line_SignedFixed1(&line, data->tune_left_error_rpm);
-    Line_Char(&line, ' ');
-    Line_SignedFixed1(&line, data->tune_right_error_rpm);
-    Draw(5U, &line);
-
-    Line_Clear(&line);
-    Line_Text(&line, "YAW:");
-    Line_SignedFixed1(&line, data->yaw_deg);
-    Line_Text(&line, " HE:");
-    Line_SignedFixed1(&line, data->tune_heading_error_deg);
-    Draw(6U, &line);
-
-    Line_Clear(&line);
-    Line_Text(&line, "BAT:");
-    if (data->supply_valid != 0U) {
-        Line_Voltage(&line, data->battery_mv);
-    } else {
-        Line_Text(&line, "--");
-    }
-    Line_Text(&line, " C:");
-    Line_SignedFixed1(&line, data->tune_heading_correction_rpm);
-    Draw(7U, &line);
-}
-
-static void RenderSettings(const competition_page_data_t *data)
-{
-    competition_ui_line_t line;
-    uint8_t cursor = data->competition.cursor;
-
-    if (data->competition.advanced_mode != 0U) {
-        DrawHeader("SET ADV", data);
-        Line_Clear(&line);
-        Line_Text(&line, "PARAM:");
-        Line_Text(&line, data->advanced_metadata != NULL ?
-            data->advanced_metadata->name : "--");
-        Draw(1U, &line);
-        Line_Clear(&line);
-        Line_Text(&line, data->competition.editing ? "VALUE*>" : "VALUE:");
-        Line_Fixed1(&line, data->competition.editing ?
-            data->competition.advanced_draft_value : data->advanced_value);
-        Draw(2U, &line);
-        Line_Clear(&line);
-        Line_Text(&line, "INDEX:");
-        Line_U32(&line,
-            (uint32_t) data->competition.advanced_parameter_index + 1U);
-        Line_Text(&line, "/4");
-        Draw(3U, &line);
-        DrawFooter(data);
-        return;
-    }
-
-    DrawHeader("SET", data);
-    Line_Clear(&line);
-    DrawSelectPrefix(&line, data, 0U);
-    Line_Text(&line, "TASK:T");
-    Line_U32(&line, (uint32_t) data->competition.settings.task_slot + 1U);
-    Draw(1U, &line);
-    Line_Clear(&line);
-    DrawSelectPrefix(&line, data, 1U);
-    Line_Text(&line, "DIST:");
-    Line_I32(&line, data->competition.settings.distance_mm);
-    Line_Text(&line, "mm");
-    Draw(2U, &line);
-    Line_Clear(&line);
-    DrawSelectPrefix(&line, data, 2U);
-    Line_Text(&line, "SPD:");
-    Line_Fixed1(&line,
-        (float) data->competition.settings.speed_deci_rpm * 0.1f);
-    Line_Text(&line, "rpm");
-    Draw(3U, &line);
-    Line_Clear(&line);
-    DrawSelectPrefix(&line, data, 3U);
-    Line_Text(&line, "ANG:");
-    Line_Fixed1(&line,
-        (float) data->competition.settings.angle_deci_deg * 0.1f);
-    Line_Text(&line, "deg");
-    Draw(4U, &line);
-    Line_Clear(&line);
-    DrawSelectPrefix(&line, data, 4U);
-    Line_Text(&line, "TRN:");
-    Line_Fixed1(&line,
-        (float) data->competition.settings.turn_speed_deci_rpm * 0.1f);
-    Line_Text(&line, "rpm");
-    Draw(5U, &line);
-    Line_Clear(&line);
-    DrawSelectPrefix(&line, data, 5U);
-    Line_Text(&line, "DELAY:");
-    Line_U32(&line, data->competition.settings.start_delay_s);
-    Line_Text(&line, "s C:");
-    Line_U32(&line, cursor + 1U);
-    Draw(6U, &line);
-    DrawFooter(data);
-}
-
 static void AppendStatus(competition_ui_line_t *line, uint8_t ready)
 {
-    Line_Text(line, ready ? "OK" : "--");
+    Line_Text(line, ready != 0U ? "OK" : "--");
 }
 
 static void AppendAvailableStatus(competition_ui_line_t *line,
@@ -431,53 +150,267 @@ static void AppendAvailableStatus(competition_ui_line_t *line,
     }
 }
 
-static void RenderHealth(const competition_page_data_t *data)
+static void FormatRunTime(uint32_t elapsed_ms, char text[7])
+{
+    uint32_t seconds;
+    uint32_t milliseconds;
+
+    if (elapsed_ms > 99999U) {
+        elapsed_ms = 99999U;
+    }
+    seconds = elapsed_ms / 1000U;
+    milliseconds = elapsed_ms % 1000U;
+    text[0] = (char) ('0' + (seconds / 10U) % 10U);
+    text[1] = (char) ('0' + seconds % 10U);
+    text[2] = '.';
+    text[3] = (char) ('0' + milliseconds / 100U);
+    text[4] = (char) ('0' + (milliseconds / 10U) % 10U);
+    text[5] = (char) ('0' + milliseconds % 10U);
+    text[6] = '\0';
+}
+
+static void RenderOfficialTimer(const competition_page_data_t *data)
+{
+    competition_ui_line_t line;
+    char elapsed[7];
+    const uint8_t slot = data->competition.settings.task_slot;
+
+    Line_Clear(&line);
+    Line_Text(&line, HMissionService_Code(slot));
+    Line_Char(&line, ' ');
+    Line_Text(&line, CompetitionService_StateName(
+        (competition_state_t) data->competition.state));
+    Ssd1306_DrawText(0U, 0U, line.text);
+    FormatRunTime(data->competition.run_elapsed_ms, elapsed);
+    Ssd1306_DrawTextScaled(10U, 20U, elapsed, 3U);
+}
+
+static void RenderMain(const competition_page_data_t *data)
 {
     competition_ui_line_t line;
 
-    DrawHeader("HEALTH", data);
+    DrawHeader("MAIN", data, NULL);
     Line_Clear(&line);
-    Line_Text(&line, "BAT:"); AppendStatus(&line, data->supply_valid);
-    Line_Text(&line, " MPU:"); AppendStatus(&line, data->imu_ready);
-    Line_Text(&line, " ENC:"); AppendStatus(&line, data->encoders_ready);
+    Line_Char(&line, '>');
+    Line_Text(&line, HMissionService_Code(
+        data->competition.settings.task_slot));
+    Line_Char(&line, ' ');
+    Line_Text(&line, HMissionService_Name(
+        data->competition.settings.task_slot));
     Draw(1U, &line);
+
     Line_Clear(&line);
-    Line_Text(&line, "OLED:"); AppendStatus(&line, data->health.oled_online);
-    Line_Text(&line, " I2C E:"); Line_U32(&line, data->health.i2c_error_count);
-    Draw(2U, &line);
-    Line_Clear(&line);
-    Line_Text(&line, "IR:");
-    AppendStatus(&line, data->reflectance_mask == 0xFFU);
-    Line_Text(&line, " MASK:"); Line_U32(&line, data->reflectance_mask);
-    Draw(3U, &line);
-    Line_Clear(&line);
-    Line_Text(&line, "ESP:"); AppendStatus(&line, data->esp_ready);
-    Line_Text(&line, " LDR:"); AppendStatus(&line, data->lidar_online);
-    Draw(4U, &line);
-    Line_Clear(&line);
-    Line_Text(&line, "Z1:");
-    AppendAvailableStatus(&line, data->zdt_gen1_available,
-        data->zdt_gen1_online);
-    Line_Text(&line, " Z2:");
-    AppendAvailableStatus(&line, data->zdt_gen2_available,
-        data->zdt_gen2_online);
-    Draw(5U, &line);
-    Line_Clear(&line);
-    Line_Text(&line, ">SCAN ");
-    if (data->competition.health_check_state ==
-            (uint8_t) COMPETITION_HEALTH_CHECK_RUNNING) {
-        Line_Text(&line, "RUN");
-    } else if (data->competition.health_check_state ==
-            (uint8_t) COMPETITION_HEALTH_CHECK_COMPLETE) {
-        Line_Text(&line, data->health_check_pass ? "PASS" : "FAIL");
-    } else if (data->competition.health_check_state ==
-            (uint8_t) COMPETITION_HEALTH_CHECK_FAILED) {
-        Line_Text(&line, "BUSY");
+    if (data->competition.state ==
+            (uint8_t) COMPETITION_STATE_COUNTDOWN) {
+        Line_Text(&line, "START:");
+        Line_U32(&line, (data->competition.countdown_remaining_ms +
+            999U) / 1000U);
+        Line_Text(&line, "s");
     } else {
-        Line_Text(&line, "READY");
+        Line_Text(&line, "TIME:");
+        Line_U32(&line, data->competition.run_elapsed_ms / 1000U);
+        Line_Char(&line, '.');
+        Line_Char(&line, (char) ('0' +
+            (data->competition.run_elapsed_ms / 100U) % 10U));
+        Line_Text(&line, "s RESULT:");
+        Line_Text(&line, CompetitionService_ResultName(
+            (competition_result_t) data->competition.result));
+    }
+    Draw(2U, &line);
+
+    Line_Clear(&line);
+    Line_Text(&line, "DIST:");
+    Line_Fixed1(&line, data->distance_progress_mm);
+    Line_Text(&line, "mm");
+    Draw(3U, &line);
+
+    Line_Clear(&line);
+    Line_Text(&line, "RPM L:");
+    Line_Fixed1(&line, data->left_rpm);
+    Line_Text(&line, " R:");
+    Line_Fixed1(&line, data->right_rpm);
+    Draw(4U, &line);
+
+    Line_Clear(&line);
+    Line_Text(&line, "YAW:");
+    if (data->imu_ready != 0U) {
+        Line_SignedFixed1(&line, data->yaw_deg);
+    } else {
+        Line_Text(&line, "--");
+    }
+    Line_Text(&line, " OUT:");
+    Line_Text(&line, data->health.actuator_output_permitted != 0U ?
+        "ON" : "LOCK");
+    Draw(5U, &line);
+
+    Line_Clear(&line);
+    Line_Text(&line, "BAT:");
+    if (data->supply_valid != 0U) {
+        Line_Voltage(&line, data->battery_mv);
+    } else {
+        Line_Text(&line, "--");
+    }
+    Line_Text(&line, " T:");
+    if (data->imu_ready != 0U) {
+        Line_Fixed1(&line, data->temperature_c);
+        Line_Char(&line, 'C');
+    } else {
+        Line_Text(&line, "--");
     }
     Draw(6U, &line);
-    DrawFooter(data);
+
+    Line_Clear(&line);
+    Line_Text(&line, "SEQ:");
+    Line_U32(&line, data->competition.request_sequence);
+    Line_Text(&line, " S:");
+    Line_U32(&line, data->competition.emergency_stop_count);
+    Draw(7U, &line);
+}
+
+static void RenderTest(const competition_page_data_t *data)
+{
+    competition_ui_line_t line;
+
+    if (data->competition.advanced_mode != 0U) {
+        DrawHeader("TEST ADV", data, NULL);
+        Line_Clear(&line);
+        Line_Text(&line, "PARAM:");
+        Line_Text(&line, data->advanced_metadata != NULL ?
+            data->advanced_metadata->name : "--");
+        Draw(1U, &line);
+        Line_Clear(&line);
+        Line_Text(&line, data->competition.editing ? "VALUE*>" : "VALUE:");
+        Line_Fixed1(&line, data->competition.editing ?
+            data->competition.advanced_draft_value : data->advanced_value);
+        Draw(2U, &line);
+        Line_Clear(&line);
+        Line_Text(&line, "INDEX:");
+        Line_U32(&line, (uint32_t) data->competition.advanced_parameter_index +
+            1U);
+        Line_Text(&line, "/4");
+        Draw(3U, &line);
+        if (data->advanced_metadata != NULL) {
+            Line_Clear(&line);
+            Line_Text(&line, "MIN:");
+            Line_Fixed1(&line, data->advanced_metadata->minimum_value);
+            Draw(4U, &line);
+            Line_Clear(&line);
+            Line_Text(&line, "MAX:");
+            Line_Fixed1(&line, data->advanced_metadata->maximum_value);
+            Draw(5U, &line);
+            Line_Clear(&line);
+            Line_Text(&line, "STEP:");
+            Line_Fixed1(&line, data->advanced_metadata->step);
+            Draw(6U, &line);
+        }
+        Line_Clear(&line);
+        Line_Text(&line, "FLASH:");
+        Line_Text(&line, data->competition.save_pending != 0U ?
+            "PENDING" : "SAVED");
+        Draw(7U, &line);
+        return;
+    }
+
+    DrawHeader("TEST", data, NULL);
+    Line_Clear(&line);
+    DrawSelectPrefix(&line, data, 0U);
+    Line_Text(&line, "TASK:T");
+    Line_U32(&line, (uint32_t) data->competition.settings.task_slot + 1U);
+    Draw(1U, &line);
+    Line_Clear(&line);
+    DrawSelectPrefix(&line, data, 1U);
+    Line_Text(&line, "MODE:");
+    Line_Text(&line, data->competition.settings.test_action ==
+        (uint8_t) COMPETITION_TEST_DISTANCE ? "DIST" : "TURN");
+    Draw(2U, &line);
+    Line_Clear(&line);
+    DrawSelectPrefix(&line, data, 2U);
+    Line_Text(&line, "DIST:");
+    Line_I32(&line, data->competition.settings.distance_mm);
+    Line_Text(&line, "mm");
+    Draw(3U, &line);
+    Line_Clear(&line);
+    DrawSelectPrefix(&line, data, 3U);
+    Line_Text(&line, "SPD:");
+    Line_Fixed1(&line, (float) data->competition.settings.speed_deci_rpm *
+        0.1f);
+    Line_Text(&line, "rpm");
+    Draw(4U, &line);
+    Line_Clear(&line);
+    DrawSelectPrefix(&line, data, 4U);
+    Line_Text(&line, "ANG:");
+    Line_Fixed1(&line, (float) data->competition.settings.angle_deci_deg *
+        0.1f);
+    Line_Text(&line, "deg");
+    Draw(5U, &line);
+    Line_Clear(&line);
+    DrawSelectPrefix(&line, data, 5U);
+    Line_Text(&line, "TRN:");
+    Line_Fixed1(&line, (float) data->competition.settings.turn_speed_deci_rpm *
+        0.1f);
+    Line_Text(&line, "rpm");
+    Draw(6U, &line);
+    Line_Clear(&line);
+    DrawSelectPrefix(&line, data, 6U);
+    Line_Text(&line, "DELAY:");
+    Line_U32(&line, data->competition.settings.start_delay_s);
+    Line_Text(&line, "s");
+    Draw(7U, &line);
+}
+
+static void RenderTune(const competition_page_data_t *data)
+{
+    competition_ui_line_t line;
+
+    DrawHeader("TUNE", data, data->tune_boost_active != 0U ? "BST" : NULL);
+    Line_Clear(&line);
+    Line_Text(&line, "       L      R");
+    Draw(1U, &line);
+    Line_Clear(&line);
+    Line_Text(&line, "TGT  ");
+    Line_Fixed1(&line, data->tune_left_target_rpm);
+    Line_Char(&line, ' ');
+    Line_Fixed1(&line, data->tune_right_target_rpm);
+    Draw(2U, &line);
+    Line_Clear(&line);
+    Line_Text(&line, "RPM  ");
+    Line_Fixed1(&line, data->tune_left_measured_rpm);
+    Line_Char(&line, ' ');
+    Line_Fixed1(&line, data->tune_right_measured_rpm);
+    Draw(3U, &line);
+    Line_Clear(&line);
+    Line_Text(&line, "PWM  ");
+    Line_Fixed1(&line, data->tune_left_pwm_percent);
+    Line_Char(&line, '%');
+    Line_Char(&line, ' ');
+    Line_Fixed1(&line, data->tune_right_pwm_percent);
+    Line_Char(&line, '%');
+    if (data->tune_pwm_saturated != 0U) {
+        Line_Text(&line, " SAT");
+    }
+    Draw(4U, &line);
+    Line_Clear(&line);
+    Line_Text(&line, "ERR  ");
+    Line_SignedFixed1(&line, data->tune_left_error_rpm);
+    Line_Char(&line, ' ');
+    Line_SignedFixed1(&line, data->tune_right_error_rpm);
+    Draw(5U, &line);
+    Line_Clear(&line);
+    Line_Text(&line, "YAW:");
+    Line_SignedFixed1(&line, data->yaw_deg);
+    Line_Text(&line, " HE:");
+    Line_SignedFixed1(&line, data->tune_heading_error_deg);
+    Draw(6U, &line);
+    Line_Clear(&line);
+    Line_Text(&line, "BAT:");
+    if (data->supply_valid != 0U) {
+        Line_Voltage(&line, data->battery_mv);
+    } else {
+        Line_Text(&line, "--");
+    }
+    Line_Text(&line, " C:");
+    Line_SignedFixed1(&line, data->tune_heading_correction_rpm);
+    Draw(7U, &line);
 }
 
 static void DrawAngle(uint8_t row, const char *name, float value,
@@ -489,7 +422,7 @@ static void DrawAngle(uint8_t row, const char *name, float value,
     Line_Text(&line, name);
     Line_Char(&line, ':');
     if (ready != 0U) {
-        Line_Fixed1(&line, value);
+        Line_SignedFixed1(&line, value);
         Line_Text(&line, "deg");
     } else {
         Line_Text(&line, "--");
@@ -497,42 +430,157 @@ static void DrawAngle(uint8_t row, const char *name, float value,
     Draw(row, &line);
 }
 
-static void RenderSystem(const competition_page_data_t *data)
+static void RenderDiagImu(const competition_page_data_t *data)
 {
     competition_ui_line_t line;
 
-    DrawHeader("SYS", data);
-    DrawAngle(1U, "ROLL", data->roll_deg, data->imu_ready);
-    DrawAngle(2U, "PITCH", data->pitch_deg, data->imu_ready);
-    DrawAngle(3U, "YAW", data->yaw_deg, data->imu_ready);
+    DrawHeader("DIAG", data, "IMU");
     Line_Clear(&line);
-    Line_Text(&line, "UP:"); Line_U32(&line, data->uptime_s);
-    Line_Text(&line, "s HEAP:");
-    Line_U32(&line, data->health.heap_free_bytes);
-    Draw(4U, &line);
+    Line_Text(&line, "TEMP:");
+    if (data->imu_ready != 0U) {
+        Line_Fixed1(&line, data->temperature_c);
+        Line_Char(&line, 'C');
+    } else {
+        Line_Text(&line, "--");
+    }
+    Line_Text(&line, " IMU:");
+    AppendAvailableStatus(&line, data->imu_available, data->imu_ready);
+    Draw(1U, &line);
+    DrawAngle(2U, "ROLL", data->roll_deg, data->imu_ready);
+    DrawAngle(3U, "PITCH", data->pitch_deg, data->imu_ready);
+    DrawAngle(4U, "YAW", data->yaw_deg, data->imu_ready);
     Line_Clear(&line);
-    Line_Text(&line, "FLASH:");
-    Line_Text(&line, data->competition.result ==
-        (uint8_t) COMPETITION_RESULT_STORAGE_FAULT ? "ERR" : "OK");
-    Line_Text(&line, " GEN:");
-    Line_U32(&line, g_competition_storage_diag.generation);
-    Draw(5U, &line);
-    Line_Clear(&line);
-    if (data->imu_state == (uint8_t) IMU_SERVICE_STATE_SETTLING) {
-        Line_Text(&line, " IMU SETTLE");
+    Line_Text(&line, "STATE:");
+    if (data->imu_available == 0U) {
+        Line_Text(&line, "NA");
+    } else if (data->imu_state == (uint8_t) IMU_SERVICE_STATE_SETTLING) {
+        Line_Text(&line, "SETTLE");
     } else if (data->imu_state ==
             (uint8_t) IMU_SERVICE_STATE_CALIBRATING) {
-        Line_Text(&line, " IMU CAL:");
-        Line_U32(&line, data->imu_calibration_samples);
-        Line_Char(&line, '/');
-        Line_U32(&line, data->imu_calibration_target_samples);
+        Line_Text(&line, "CAL");
     } else if (data->imu_ready != 0U) {
-        Line_Text(&line, ">IMU RESET");
+        Line_Text(&line, "READY");
     } else {
-        Line_Text(&line, " IMU OFFLINE");
+        Line_Text(&line, "OFF");
     }
+    Draw(5U, &line);
+    Line_Clear(&line);
+    Line_Text(&line, "CAL:");
+    Line_U32(&line, data->imu_calibration_samples);
+    Line_Char(&line, '/');
+    Line_U32(&line, data->imu_calibration_target_samples);
     Draw(6U, &line);
-    DrawFooter(data);
+    Line_Clear(&line);
+    Line_Text(&line, data->imu_available != 0U && data->imu_ready != 0U ?
+        ">IMU RESET" : "IMU BUSY");
+    Draw(7U, &line);
+}
+
+static uint16_t MinimumStackWords(const system_health_snapshot_t *health)
+{
+    uint16_t minimum = health->system_stack_free_words;
+
+    if (health->service_stack_free_words < minimum) {
+        minimum = health->service_stack_free_words;
+    }
+    if (health->telemetry_stack_free_words < minimum) {
+        minimum = health->telemetry_stack_free_words;
+    }
+    if (health->display_stack_free_words < minimum) {
+        minimum = health->display_stack_free_words;
+    }
+    if (health->idle_stack_free_words < minimum) {
+        minimum = health->idle_stack_free_words;
+    }
+    if (health->timer_stack_free_words < minimum) {
+        minimum = health->timer_stack_free_words;
+    }
+    return minimum;
+}
+
+static const char *HealthShort(const system_health_snapshot_t *health)
+{
+    if (health->active_issue_mask != 0U || health->sticky_issue_mask != 0U) {
+        return "WARN";
+    }
+    if (health->level == (uint8_t) SYSTEM_HEALTH_OK) {
+        return "OK";
+    }
+    if (health->level == (uint8_t) SYSTEM_HEALTH_FAULT) {
+        return "FAULT";
+    }
+    return "UNK";
+}
+
+static void RenderDiagHardware(const competition_page_data_t *data)
+{
+    competition_ui_line_t line;
+
+    DrawHeader("DIAG", data, "HW");
+    Line_Clear(&line);
+    Line_Text(&line, "UP:");
+    Line_U32(&line, data->uptime_s);
+    Line_Text(&line, "s STK:");
+    Line_U32(&line, MinimumStackWords(&data->health));
+    Draw(1U, &line);
+    Line_Clear(&line);
+    Line_Text(&line, "HEAP:");
+    Line_U32(&line, data->health.heap_free_bytes);
+    Line_Text(&line, " FLASH:");
+    Line_Text(&line, data->competition.result ==
+        (uint8_t) COMPETITION_RESULT_STORAGE_FAULT ? "ERR" : "OK");
+    Draw(2U, &line);
+    Line_Clear(&line);
+    Line_Text(&line, "I2C:");
+    Line_U32(&line, data->health.i2c_error_count);
+    Line_Text(&line, " DL:");
+    Line_U32(&line, data->health.system_deadline_miss_count);
+    Draw(3U, &line);
+    Line_Clear(&line);
+    Line_Text(&line, "BAT:");
+    AppendStatus(&line, data->supply_valid);
+    Line_Text(&line, " IMU:");
+    AppendAvailableStatus(&line, data->imu_available, data->imu_ready);
+    Line_Text(&line, " ENC:");
+    AppendStatus(&line, data->encoders_ready);
+    Draw(4U, &line);
+    Line_Clear(&line);
+    Line_Text(&line, "OLED:");
+    AppendAvailableStatus(&line, data->oled_available,
+        data->health.oled_online);
+    Line_Text(&line, " IR:");
+    AppendAvailableStatus(&line, data->reflectance_available,
+        data->reflectance_mask == 0xFFU);
+    Line_Text(&line, " ESP:");
+    AppendAvailableStatus(&line, data->esp_available, data->esp_ready);
+    Draw(5U, &line);
+    Line_Clear(&line);
+    Line_Text(&line, "LDR:");
+    AppendAvailableStatus(&line, data->lidar_available, data->lidar_online);
+    Line_Text(&line, " Z1:");
+    AppendAvailableStatus(&line, data->zdt_gen1_available,
+        data->zdt_gen1_online);
+    Line_Text(&line, " Z2:");
+    AppendAvailableStatus(&line, data->zdt_gen2_available,
+        data->zdt_gen2_online);
+    Draw(6U, &line);
+    Line_Clear(&line);
+    Line_Text(&line, ">SCAN:");
+    if (data->competition.health_check_state ==
+            (uint8_t) COMPETITION_HEALTH_CHECK_RUNNING) {
+        Line_Text(&line, "RUN");
+    } else if (data->competition.health_check_state ==
+            (uint8_t) COMPETITION_HEALTH_CHECK_COMPLETE) {
+        Line_Text(&line, data->health_check_pass != 0U ? "PASS" : "FAIL");
+    } else if (data->competition.health_check_state ==
+            (uint8_t) COMPETITION_HEALTH_CHECK_FAILED) {
+        Line_Text(&line, "BUSY");
+    } else {
+        Line_Text(&line, "READY");
+    }
+    Line_Text(&line, " H:");
+    Line_Text(&line, HealthShort(&data->health));
+    Draw(7U, &line);
 }
 
 void CompetitionPage_Render(const competition_page_data_t *data)
@@ -541,14 +589,23 @@ void CompetitionPage_Render(const competition_page_data_t *data)
         return;
     }
     Ssd1306_Clear();
+    if (data->competition.run_is_test == 0U &&
+        data->competition.run_has_started != 0U &&
+        data->competition.state != (uint8_t) COMPETITION_STATE_READY) {
+        RenderOfficialTimer(data);
+        return;
+    }
     switch ((competition_page_t) data->competition.page) {
-        case COMPETITION_PAGE_TASK: RenderTask(data); break;
-        case COMPETITION_PAGE_RUN: RenderRun(data); break;
+        case COMPETITION_PAGE_MAIN: RenderMain(data); break;
         case COMPETITION_PAGE_TEST: RenderTest(data); break;
         case COMPETITION_PAGE_TUNE: RenderTune(data); break;
-        case COMPETITION_PAGE_SETTINGS: RenderSettings(data); break;
-        case COMPETITION_PAGE_HEALTH: RenderHealth(data); break;
-        case COMPETITION_PAGE_SYSTEM: RenderSystem(data); break;
-        default: RenderTask(data); break;
+        case COMPETITION_PAGE_DIAG:
+            if (data->competition.diag_view == 0U) {
+                RenderDiagImu(data);
+            } else {
+                RenderDiagHardware(data);
+            }
+            break;
+        default: RenderMain(data); break;
     }
 }

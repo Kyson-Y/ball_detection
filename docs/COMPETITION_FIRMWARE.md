@@ -27,19 +27,22 @@ enabled together with the formal ESP32 UART2 link.
 ## OLED pages and buttons
 
 The five physical keys map to `UP`, `DOWN`, `LEFT`, `RIGHT`, and `OK`.
-Short press, long press and held repeat are decoded by `ui_input`. While a
-countdown or motion is active, the 5 ms raw-button service stops the chassis on
-the first nonzero button mask; the key that started a countdown is ignored until
-it is released.
+Short press, long press and held repeat are decoded by `ui_input`. Any key while
+a task, test countdown or test motion is active enters the emergency-safe path.
+The elapsed time freezes at the stop event.
 
-Pages are `TASK`, `RUN`, `TEST`, `SET`, `HEALTH`, and `SYS`. Left/right changes
-page when the car is safe. `TASK` selects one of five empty mission slots;
-short `OK` arms it and long `OK` starts the configured countdown. Empty slots
-finish with `EMPTY` and never issue a motor command. `TEST` uses the same
-validated closed loops and supports signed distance, speed, signed angle and
-turn speed. `SET` edits the task slot, distance, speed, angle, turn speed and
-countdown delay. A long `OK` from `SET` opens the advanced KP/KI/KD/TARGET
-parameter view.
+The four pages are `MAIN`, `TEST`, `TUNE`, and `DIAG`. Left/right changes page
+when the car is safe. `MAIN` selects H2--H6 with up/down and starts the selected
+formal task immediately with a short `OK` press. During a formal task the OLED
+is a dedicated timing screen: the task/state stays on the top line and the
+largest fitting `SS.mmm` timer occupies the display body. A stopped result keeps
+the frozen time until `OK` acknowledges it.
+
+`TEST` retains the configurable distance/heading test, start delay, task slot,
+and advanced KP/KI/KD/TARGET settings. Test runs keep the existing diagnostic
+data pages instead of switching to the formal full-screen timer. `TUNE` shows
+the final normalized motor PWM and control terms. `DIAG` contains the IMU view,
+IMU reset, runtime resource diagnostics, and peripheral scan.
 
 The default test values are:
 
@@ -69,13 +72,31 @@ registered mission callback or the configurable `TEST` action after its
 countdown. Any physical key, injected UI event, rejected request, actuator
 fault or mission stop enters the safe path.
 
-## Current contest state
+## Current H-problem state
 
-All five mission slots are placeholders until the official task is known. The
-installed hardware status page already reports battery, MPU6050, encoders,
-OLED/I2C, eight-channel reflectance, ESP32, lidar reservation, ZDT and camera
-link placeholders. An `IRON` detector is shown as unconnected until the actual
-sensor circuit and protocol are finalized.
+The five registered formal slots are `H2 LINE LAP`, `H3 BALL STEP`,
+`H4 AB CENTER`, `H5 LAP CENTER`, and `H6 LAP HOLD`. Their current callbacks are
+safe placeholders for validating task selection, timing and emergency stop:
+they never grant chassis output and never select or command ZDT. Replace each
+callback body as its real H-task state machine is implemented; do not bypass the
+competition service safety and timer path.
+
+The installed diagnostics report battery, MPU6050, encoders, OLED/I2C,
+eight-channel reflectance, ESP32, lidar reservation, both ZDT generations and
+camera-link placeholders.
+
+## Validation on 2026-07-29
+
+- Full FreeRTOS/application rebuild: 0 errors, 0 warnings.
+- Program/readback passed on CMSIS-DAP `2e4c7219`; image SHA-256
+  `AFD27FBE56379C0BC2C66BDB048CA8BE2E267B3D021BBD651FCC6F644C0C3678`.
+- Five-second runtime capture: control 100 Hz, IMU 100 Hz, no CRC/sequence/I2C
+  error, no deadline miss, OLED online, display stack minimum 286 words.
+- Automated H6 run: entered `RUNNING`, reached 1.606 s with output permission
+  still zero, then an injected arbitrary key produced `ABORTED` at 1.632 s.
+  The value remained 1.632 s after another 700 ms and the H6 stop callback ran.
+- Captured OLED framebuffer showed `H6 RUN` and an unclipped large `SS.mmm`
+  value with no unsupported glyphs.
 
 ## Validation on 2026-07-28
 

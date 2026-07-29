@@ -267,6 +267,53 @@ void Ssd1306_DrawText(uint8_t x, uint8_t page, const char *text)
     }
 }
 
+static void Ssd1306_SetPixel(uint8_t x, uint8_t y)
+{
+    if (x >= SSD1306_WIDTH || y >= SSD1306_HEIGHT) {
+        return;
+    }
+    s_framebuffer[(uint16_t) (y / 8U) * SSD1306_WIDTH + x] |=
+        (uint8_t) (1U << (y % 8U));
+}
+
+void Ssd1306_DrawTextScaled(uint8_t x, uint8_t y, const char *text,
+    uint8_t scale)
+{
+    uint16_t cursor = x;
+
+    if (text == NULL || scale == 0U) {
+        return;
+    }
+    while (*text != '\0' &&
+        cursor + (uint16_t) SSD1306_CHAR_WIDTH * scale <= SSD1306_WIDTH) {
+        const uint8_t *glyph = Ssd1306_FindGlyph(*text);
+        uint8_t column;
+
+        for (column = 0U; column < SSD1306_FONT_WIDTH; column++) {
+            uint8_t row;
+
+            for (row = 0U; row < 7U; row++) {
+                if ((glyph[column] & (uint8_t) (1U << row)) != 0U) {
+                    uint8_t dx;
+                    uint8_t dy;
+
+                    for (dx = 0U; dx < scale; dx++) {
+                        for (dy = 0U; dy < scale; dy++) {
+                            Ssd1306_SetPixel(
+                                (uint8_t) (cursor +
+                                    (uint16_t) column * scale + dx),
+                                (uint8_t) (y +
+                                    (uint16_t) row * scale + dy));
+                        }
+                    }
+                }
+            }
+        }
+        cursor += (uint16_t) SSD1306_CHAR_WIDTH * scale;
+        text++;
+    }
+}
+
 void Ssd1306_BeginRefresh(void)
 {
     s_refresh_page = 0U;

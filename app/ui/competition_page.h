@@ -36,13 +36,18 @@ typedef struct {
     uint8_t tune_boost_active;
     uint8_t tune_output_permitted;
     uint8_t supply_valid;
+    uint8_t imu_available;
     uint8_t imu_ready;
     uint8_t imu_state;
     uint16_t imu_calibration_samples;
     uint16_t imu_calibration_target_samples;
     uint8_t encoders_ready;
+    uint8_t oled_available;
+    uint8_t reflectance_available;
     uint8_t reflectance_mask;
+    uint8_t esp_available;
     uint8_t esp_ready;
+    uint8_t lidar_available;
     uint8_t lidar_online;
     uint8_t zdt_gen1_online;
     uint8_t zdt_gen2_online;
