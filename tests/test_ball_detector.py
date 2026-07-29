@@ -39,6 +39,8 @@ class BallDetectorTests(unittest.TestCase):
         self.assertTrue(result["detected"])
         self.assertFalse(result["reference_mismatch"])
         self.assertAlmostEqual(result["center_x"], expected_x, delta=1.0)
+        self.assertAlmostEqual(result["offset_x"], expected_x - 320.0, delta=1.0)
+        self.assertEqual(self.detector.origin_x, 320.0)
         self.assertGreater(result["confidence"], 0.0)
 
     def test_global_scene_change_is_rejected(self):

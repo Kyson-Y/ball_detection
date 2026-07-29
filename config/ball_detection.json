@@ -42,7 +42,7 @@
     "mm_per_pixel": 0.390625,
     "position_sign": 1.0,
     "valid": true,
-    "description": "Provisional: camera center is O; 250 mm spans 640 px"
+    "description": "Provisional: ROI long-axis center is O; 250 mm spans 640 px"
   },
   "tracker": {
     "alpha": 0.7,
@@ -64,7 +64,11 @@
   },
   "status_server": {
     "enabled": true,
-    "port": 8080
+    "port": 8080,
+    "preview_fps": 2.0,
+    "preview_width": 480,
+    "preview_height": 360,
+    "jpeg_quality": 55
   },
   "thermal": {
     "path": "/sys/class/thermal/thermal_zone0/temp",

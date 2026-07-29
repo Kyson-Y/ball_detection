@@ -21,6 +21,7 @@ from ball_uart_protocol import (
     FLAG_VELOCITY_VALID,
     build_state_packet,
 )
+from preview_encoder import PreviewEncoder
 from status_server import StatusServer
 
 
@@ -104,6 +105,7 @@ def run(config_path: str) -> int:
     requested_fps = float(camera_config["fps"])
     reference = np.load(str(reference_config["path"]), allow_pickle=False)
     detector = BallDetector(config, reference)
+    origin_x_px = detector.origin_x
     tracker = AlphaBetaTracker(
         alpha=float(tracker_config["alpha"]),
         beta=float(tracker_config["beta"]),
@@ -125,6 +127,7 @@ def run(config_path: str) -> int:
     cam = None
     serial_port = None
     status_server = None
+    preview_encoder = None
     frames = 0
     uart_packets = 0
     uart_errors = 0
@@ -137,6 +140,9 @@ def run(config_path: str) -> int:
     uart_hz = 0.0
     last_control_at = None
     last_uart_at = None
+    next_preview_at = 0.0
+    preview_fps = float(status_config.get("preview_fps", 0.0))
+    preview_interval_s = 1.0 / preview_fps if preview_fps > 0.0 else 0.0
 
     try:
         cam = camera.Camera(
@@ -185,6 +191,30 @@ def run(config_path: str) -> int:
                 status_server = None
                 print(f"status_server_error error={exc!r}", flush=True)
 
+        if status_server is not None and preview_fps > 0.0:
+            try:
+                preview_encoder = PreviewEncoder(
+                    status_server=status_server,
+                    image_module=image,
+                    roi_x=detector.roi_x,
+                    roi_w=detector.roi_w,
+                    roi_h=detector.roi_h,
+                    width=int(status_config["preview_width"]),
+                    height=int(status_config["preview_height"]),
+                    jpeg_quality=int(status_config["jpeg_quality"]),
+                )
+                preview_encoder.start()
+                print(
+                    f"preview_encoder_started fps={preview_fps:.2f} "
+                    f"size={status_config['preview_width']}x"
+                    f"{status_config['preview_height']} "
+                    f"quality={status_config['jpeg_quality']}",
+                    flush=True,
+                )
+            except Exception as exc:
+                preview_encoder = None
+                print(f"preview_encoder_error error={exc!r}", flush=True)
+
         report_started = time.monotonic()
         report_frames = 0
         report_uart_packets = 0
@@ -194,7 +224,7 @@ def run(config_path: str) -> int:
             f"roi=({detector.roi_x},{detector.roi_y},"
             f"{detector.roi_w},{detector.roi_h}) "
             f"vertical_shift={vertical_shift} alignment_cost={alignment_cost:.3f} "
-            f"center_x_px={float(calibration['center_x_px']):.3f} "
+            f"origin_x_px={origin_x_px:.3f} "
             f"mm_per_pixel={float(calibration['mm_per_pixel']):.8f}",
             flush=True,
         )
@@ -219,15 +249,22 @@ def run(config_path: str) -> int:
                     )
                     break
 
+            ball_x_px = None
+            ball_offset_px = None
+            ball_offset_mm = None
             if latest_result["reference_mismatch"]:
                 tracker.reset()
                 tracked_state = None
                 predicted = False
             elif latest_result["detected"]:
-                measured_x_px = detector.roi_x + latest_result["center_x"]
-                measured_offset_mm = float(calibration["position_sign"]) * (
-                    measured_x_px - float(calibration["center_x_px"])
-                ) * float(calibration["mm_per_pixel"])
+                ball_x_px = detector.roi_x + latest_result["center_x"]
+                ball_offset_px = float(latest_result["offset_x"])
+                ball_offset_mm = (
+                    float(calibration["position_sign"])
+                    * ball_offset_px
+                    * float(calibration["mm_per_pixel"])
+                )
+                measured_offset_mm = ball_offset_mm
                 tracked_state = tracker.update(measured_offset_mm, capture_monotonic_s)
                 predicted = False
             else:
@@ -348,7 +385,32 @@ def run(config_path: str) -> int:
             if serial_port is None:
                 uart_hz = 0.0
 
+            if (
+                preview_encoder is not None
+                and status_server is not None
+                and status_server.preview_requested_recently()
+                and loop_completed_at >= next_preview_at
+            ):
+                preview_encoder.submit(
+                    gray.copy(),
+                    dict(latest_result),
+                    origin_x_px,
+                    ball_offset_px,
+                    ball_offset_mm,
+                )
+                next_preview_at = loop_completed_at + preview_interval_s
+
             if status_server is not None:
+                preview_stats = (
+                    preview_encoder.snapshot()
+                    if preview_encoder is not None
+                    else {
+                        "preview_encoded": 0,
+                        "preview_dropped": 0,
+                        "preview_errors": 0,
+                        "preview_encode_ms": 0.0,
+                    }
+                )
                 status_server.update(
                     {
                         "control_hz": control_hz,
@@ -357,6 +419,10 @@ def run(config_path: str) -> int:
                         "reference_mismatch": bool(
                             latest_result["reference_mismatch"]
                         ),
+                        "ball_x_px": ball_x_px,
+                        "offset_px": ball_offset_px,
+                        "offset_mm": ball_offset_mm,
+                        "origin_x_px": origin_x_px,
                         "position_mm": center_offset_mm,
                         "velocity_mm_s": velocity_mm_s,
                         "velocity_valid": bool(velocity_valid),
@@ -369,6 +435,7 @@ def run(config_path: str) -> int:
                         "flags": flags,
                         "uart_errors": uart_errors,
                         "frames": frames,
+                        **preview_stats,
                     }
                 )
 
@@ -401,6 +468,8 @@ def run(config_path: str) -> int:
 
         return 0
     finally:
+        if preview_encoder is not None:
+            preview_encoder.stop()
         if status_server is not None:
             status_server.stop()
         close_control_uart(serial_port)

@@ -16,6 +16,7 @@ class BallDetector:
         self.roi_y = int(roi["y"])
         self.roi_w = int(roi["width"])
         self.roi_h = int(roi["height"])
+        self.origin_x = self.roi_x + self.roi_w / 2.0
         self.analysis_y0 = int(roi["analysis_y0"])
         self.analysis_y1 = int(roi["analysis_y1"])
 
@@ -179,6 +180,7 @@ class BallDetector:
             "reference_mismatch": reference_mismatch,
             "center_x": center_x,
             "center_y": center_y,
+            "offset_x": center_x - self.roi_w / 2.0 if detected else None,
             "peak": peak_response,
             "threshold": threshold,
             "confidence": confidence,

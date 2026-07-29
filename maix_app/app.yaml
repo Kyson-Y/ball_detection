@@ -1,8 +1,8 @@
 id: ball_detection_control
 name: Ball Detection Control
-version: 1.0.0
+version: 1.1.0
 author: Kyson-Y
 icon: ''
-desc: Steel-ball position and velocity output over UART1
+desc: Steel-ball control with low-rate web preview
 files:
   - main.py

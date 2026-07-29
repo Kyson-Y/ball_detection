@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import socket
 import threading
+import time
 
 
 INDEX_HTML = b"""<!doctype html>
@@ -12,25 +13,32 @@ INDEX_HTML = b"""<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Ball Control Status</title>
 <style>
-*{box-sizing:border-box}body{margin:0;background:#111;color:#eee;font:14px Arial,sans-serif}header{height:52px;padding:0 18px;display:flex;align-items:center;justify-content:space-between;background:#1b1b1b;border-bottom:1px solid #3a3a3a}header strong{font-size:16px}.state{display:flex;align-items:center;gap:8px;color:#aaa}.dot{width:9px;height:9px;border-radius:50%;background:#c84b3a}.live .dot{background:#43a66b}.live{color:#d8f0df}main{width:min(100%,920px);margin:auto;padding:18px}.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-top:1px solid #3a3a3a;border-bottom:1px solid #3a3a3a}.metric{min-width:0;padding:16px 14px;border-right:1px solid #3a3a3a}.metric:nth-child(4n){border-right:0}.label{display:block;color:#999;font-size:12px;margin-bottom:8px}.value{display:block;font:20px Consolas,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ok{color:#59c980}.warn{color:#e5ad47}.bad{color:#ef7463}@media(max-width:650px){main{padding:10px}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.metric:nth-child(2n){border-right:0}.metric{border-bottom:1px solid #3a3a3a}}
+*{box-sizing:border-box}body{margin:0;background:#111;color:#eee;font:14px Arial,sans-serif;letter-spacing:0}header{height:52px;padding:0 18px;display:flex;align-items:center;justify-content:space-between;background:#1b1b1b;border-bottom:1px solid #3a3a3a}header strong{font-size:16px}.state{display:flex;align-items:center;gap:8px;color:#aaa}.dot{width:9px;height:9px;border-radius:50%;background:#c84b3a}.live .dot{background:#43a66b}.live{color:#d8f0df}main{width:min(100%,920px);margin:auto;padding:14px}.preview{width:100%;aspect-ratio:4/3;background:#050505;border:1px solid #3a3a3a;overflow:hidden}.preview img{display:block;width:100%;height:100%;object-fit:contain}.metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));margin-top:14px;border-top:1px solid #3a3a3a;border-left:1px solid #3a3a3a}.metric{min-width:0;height:78px;padding:14px 12px;border-right:1px solid #3a3a3a;border-bottom:1px solid #3a3a3a}.label{display:block;color:#999;font-size:11px;margin-bottom:8px}.value{display:block;font:18px Consolas,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ok{color:#59c980}.warn{color:#e5ad47}.bad{color:#ef7463}@media(max-width:650px){main{padding:8px}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.metric{height:72px}}
 </style>
 </head>
 <body>
 <header><strong>Ball Control</strong><span id="state" class="state"><i class="dot"></i><span>CONNECTING</span></span></header>
-<main><section class="metrics">
+<main>
+<section class="preview"><img id="preview" alt="Camera preview"></section>
+<section class="metrics">
+<div class="metric"><span class="label">BALL DETECTED</span><span id="detection" class="value">--</span></div>
+<div class="metric"><span class="label">OFFSET PX</span><span id="offsetPx" class="value">--</span></div>
+<div class="metric"><span class="label">OFFSET MM</span><span id="offsetMm" class="value">--</span></div>
+<div class="metric"><span class="label">BALL X</span><span id="ballX" class="value">--</span></div>
+<div class="metric"><span class="label">ROI ZERO X</span><span id="origin" class="value">--</span></div>
 <div class="metric"><span class="label">CONTROL RATE</span><span id="control" class="value">--</span></div>
 <div class="metric"><span class="label">UART RATE</span><span id="uart" class="value">--</span></div>
-<div class="metric"><span class="label">DETECTION</span><span id="detection" class="value">--</span></div>
-<div class="metric"><span class="label">POSITION</span><span id="position" class="value">--</span></div>
 <div class="metric"><span class="label">VELOCITY</span><span id="velocity" class="value">--</span></div>
 <div class="metric"><span class="label">CONFIDENCE</span><span id="confidence" class="value">--</span></div>
 <div class="metric"><span class="label">TEMPERATURE</span><span id="temperature" class="value">--</span></div>
-<div class="metric"><span class="label">FLAGS</span><span id="flags" class="value">--</span></div>
-</section></main>
+</section>
+</main>
 <script>
-const get=id=>document.getElementById(id),state=get('state');
-async function refresh(){try{const r=await fetch('/status.json',{cache:'no-store'});if(!r.ok)throw 0;const d=await r.json();state.classList.add('live');state.lastElementChild.textContent='LIVE';get('control').textContent=d.control_hz.toFixed(2)+' Hz';get('uart').textContent=d.uart_hz.toFixed(2)+' Hz';const valid=d.detected&&!d.reference_mismatch;get('detection').textContent=d.reference_mismatch?'REFERENCE':(d.detected?'FOUND':'NONE');get('detection').className='value '+(valid?'ok':(d.reference_mismatch?'warn':'bad'));get('position').textContent=valid?d.position_mm.toFixed(2)+' mm':'--';get('velocity').textContent=d.velocity_valid?d.velocity_mm_s.toFixed(1)+' mm/s':'--';get('confidence').textContent=d.confidence.toFixed(3);get('temperature').textContent=d.temperature_c===null?'--':d.temperature_c.toFixed(1)+' C';get('temperature').className='value '+(d.temperature_c!==null&&d.temperature_c>=70?'warn':'');get('flags').textContent='0x'+d.flags.toString(16).padStart(2,'0').toUpperCase()}catch(e){state.classList.remove('live');state.lastElementChild.textContent='RECONNECTING'}}
-refresh();setInterval(refresh,250);
+const get=id=>document.getElementById(id),state=get('state'),preview=get('preview');let previewUrl=null;
+const number=(value,digits,unit)=>value===null?'--':value.toFixed(digits)+unit;
+async function refreshStatus(){try{const r=await fetch('/status.json',{cache:'no-store'});if(!r.ok)throw 0;const d=await r.json();state.classList.add('live');state.lastElementChild.textContent='LIVE';const valid=d.detected&&!d.reference_mismatch;get('detection').textContent=d.reference_mismatch?'REFERENCE':(d.detected?'YES':'NO');get('detection').className='value '+(valid?'ok':(d.reference_mismatch?'warn':'bad'));get('offsetPx').textContent=number(d.offset_px,2,' px');get('offsetMm').textContent=number(d.offset_mm,2,' mm');get('ballX').textContent=number(d.ball_x_px,2,' px');get('origin').textContent=d.origin_x_px.toFixed(2)+' px';get('control').textContent=d.control_hz.toFixed(2)+' Hz';get('uart').textContent=d.uart_hz.toFixed(2)+' Hz';get('velocity').textContent=d.velocity_valid?d.velocity_mm_s.toFixed(1)+' mm/s':'--';get('confidence').textContent=d.confidence.toFixed(3);get('temperature').textContent=d.temperature_c===null?'--':d.temperature_c.toFixed(1)+' C';get('temperature').className='value '+(d.temperature_c!==null&&d.temperature_c>=70?'warn':'')}catch(e){state.classList.remove('live');state.lastElementChild.textContent='RECONNECTING'}}
+async function refreshFrame(){try{const r=await fetch('/frame.jpg?ts='+Date.now(),{cache:'no-store'});if(!r.ok)return;const next=URL.createObjectURL(await r.blob()),old=previewUrl;preview.onload=()=>{if(old)URL.revokeObjectURL(old)};previewUrl=next;preview.src=next}catch(e){}}
+refreshStatus();refreshFrame();setInterval(refreshStatus,250);setInterval(refreshFrame,500);
 </script>
 </body>
 </html>
@@ -46,6 +54,10 @@ class StatusServer:
             "uart_hz": 0.0,
             "detected": False,
             "reference_mismatch": False,
+            "ball_x_px": None,
+            "offset_px": None,
+            "offset_mm": None,
+            "origin_x_px": 0.0,
             "position_mm": 0.0,
             "velocity_mm_s": 0.0,
             "velocity_valid": False,
@@ -55,6 +67,11 @@ class StatusServer:
             "uart_errors": 0,
             "frames": 0,
         }
+        self._preview_jpeg = None
+        self._preview_seq = 0
+        self._preview_updated_at = None
+        self._preview_requested_at = None
+        self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._socket = None
         self._thread = None
@@ -71,7 +88,19 @@ class StatusServer:
         self._thread.start()
 
     def update(self, snapshot: dict) -> None:
-        self._snapshot = snapshot
+        with self._lock:
+            self._snapshot = snapshot
+
+    def update_preview(self, jpeg: bytes) -> None:
+        with self._lock:
+            self._preview_jpeg = bytes(jpeg)
+            self._preview_seq += 1
+            self._preview_updated_at = time.monotonic()
+
+    def preview_requested_recently(self, max_age_s: float = 2.0) -> bool:
+        with self._lock:
+            requested_at = self._preview_requested_at
+        return requested_at is not None and time.monotonic() - requested_at <= max_age_s
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -99,6 +128,25 @@ class StatusServer:
                 except OSError:
                     pass
 
+    def _status_payload(self) -> bytes:
+        now = time.monotonic()
+        with self._lock:
+            snapshot = dict(self._snapshot)
+            snapshot["preview_seq"] = self._preview_seq
+            snapshot["preview_bytes"] = (
+                0 if self._preview_jpeg is None else len(self._preview_jpeg)
+            )
+            snapshot["preview_age_ms"] = (
+                None
+                if self._preview_updated_at is None
+                else int((now - self._preview_updated_at) * 1000.0)
+            )
+        return json.dumps(snapshot, separators=(",", ":")).encode("ascii")
+
+    def _mark_preview_requested(self) -> None:
+        with self._lock:
+            self._preview_requested_at = time.monotonic()
+
     def _handle(self, client) -> None:
         client.settimeout(0.2)
         try:
@@ -108,10 +156,21 @@ class StatusServer:
         parts = request.split(b" ", 2)
         path = parts[1].split(b"?", 1)[0] if len(parts) >= 2 else b""
         if path == b"/status.json":
-            payload = json.dumps(self._snapshot, separators=(",", ":")).encode("ascii")
+            payload = self._status_payload()
             content_type = b"application/json"
             status = b"200 OK"
+        elif path == b"/frame.jpg":
+            self._mark_preview_requested()
+            with self._lock:
+                payload = self._preview_jpeg
+            if payload is None:
+                payload = b""
+                status = b"503 Service Unavailable"
+            else:
+                status = b"200 OK"
+            content_type = b"image/jpeg"
         elif path in (b"/", b"/index.html"):
+            self._mark_preview_requested()
             payload = INDEX_HTML
             content_type = b"text/html; charset=utf-8"
             status = b"200 OK"
