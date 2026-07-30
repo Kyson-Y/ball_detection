@@ -6,7 +6,7 @@ conversion.
 Upload these files to <https://maixhub.com/toolbox/convert/maixcam>:
 
 - `ball_yolo11n_320x96_opset17.onnx`
-- `calibration_100.zip`
+- `calibration_100_ball80.zip` (80 ball, 20 empty; use this first)
 
 Use these values:
 
@@ -27,3 +27,9 @@ ONNX file to the camera.
 The repeatable PC-side commands are implemented in `export_for_maixcam.py` and
 `prepare_calibration.py`. The exporter intentionally requires Ultralytics
 `8.4.104` and ONNX opset 17, matching the Sipeed online converter guide.
+
+If the INT8 comparison fails only at
+`/model.23/Sigmoid_output_0_Sigmoid`, retry the same ONNX with
+`calibration_100_ball100.zip`. Do not repeat the old 50-ball/50-empty
+`calibration_100.zip`; it produced a classification maximum of `0.259843`
+instead of the FP32 reference `0.932613` in task 7399.

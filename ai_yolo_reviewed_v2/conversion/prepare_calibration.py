@@ -35,10 +35,21 @@ def main() -> int:
     parser.add_argument("--dataset", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--count", type=int, default=100)
+    parser.add_argument(
+        "--ball-count",
+        type=int,
+        default=None,
+        help="number of positive ball images (default: 80%% of --count)",
+    )
     args = parser.parse_args()
 
     if not 20 <= args.count <= 100:
         raise ValueError("MaixHub requires 20 to 100 calibration images")
+    requested_ball_count = (
+        round(args.count * 0.8) if args.ball_count is None else args.ball_count
+    )
+    if not 0 <= requested_ball_count <= args.count:
+        raise ValueError("--ball-count must be between 0 and --count")
 
     image_dirs = [args.dataset / "images" / split for split in ("val", "test")]
     label_dirs = [args.dataset / "labels" / split for split in ("val", "test")]
@@ -50,7 +61,7 @@ def main() -> int:
 
     random.Random(20260730).shuffle(balls)
     random.Random(20260731).shuffle(empty)
-    ball_count = min(len(balls), (args.count + 1) // 2)
+    ball_count = min(len(balls), requested_ball_count)
     empty_count = min(len(empty), args.count - ball_count)
     selected = take_evenly(balls, ball_count) + take_evenly(empty, empty_count)
     if len(selected) < args.count:
@@ -64,9 +75,11 @@ def main() -> int:
         for index, image_path in enumerate(selected):
             archive.write(image_path, f"{index:03d}{image_path.suffix.lower()}")
 
+    selected_ball_count = sum(item in balls for item in selected)
+    selected_empty_count = len(selected) - selected_ball_count
     print(
         f"wrote {args.output.resolve()} with {len(selected)} images "
-        f"({ball_count} ball, {empty_count} empty)"
+        f"({selected_ball_count} ball, {selected_empty_count} empty)"
     )
     return 0
 
