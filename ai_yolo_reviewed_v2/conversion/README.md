@@ -24,6 +24,9 @@ Download the result and rename only when necessary so the final pair is:
 Check that the MUD points at the final `.cvimodel` filename. Do not deploy the
 ONNX file to the camera.
 
+Task 7405 converted successfully with `calibration_100_ball80.zip`; its renamed
+deployment files are already committed under `models/`.
+
 The repeatable PC-side commands are implemented in `export_for_maixcam.py` and
 `prepare_calibration.py`. The exporter intentionally requires Ultralytics
 `8.4.104` and ONNX opset 17, matching the Sipeed online converter guide.

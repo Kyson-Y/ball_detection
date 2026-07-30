@@ -41,10 +41,11 @@ Training result:
 - 56/56 test balls detected and 47/47 empty frames clean.
 - Test maximum center error: about 2.80 pixels at the 640-pixel ROI scale.
 
-MaixCAM cannot execute ONNX. Follow `conversion/README.md`, then place the
-generated `.mud` and `.cvimodel` in `models/`. The application deliberately
-fails at startup when these files are absent instead of falling back to the old
-detector.
+MaixHub task 7405 produced the deployed CV181x model. Its CVIModel SHA-256 is
+`14b077d119cc4826833b443d2e3affb997546eecb708132ae94fbe2cd3d2a9ce`.
+The first board run sustained about `45.9 Hz` with UART and the 2 FPS web
+preview enabled. MaixCAM cannot execute the ONNX file directly; use the `.mud`
+and `.cvimodel` pair in `models/`.
 
 ## Tuning order
 
