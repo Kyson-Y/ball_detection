@@ -32,6 +32,9 @@ An uncertain frame is sent with `DETECTED=0`, zero position/velocity, and
 
 The UART frame remains `AA 55`, version 1, type 1, 22 bytes total, little
 endian fields, and CRC16-CCITT-FALSE. See `app/ball_uart_protocol.py`.
+The MCU wiring, byte layout, validity rules, CRC implementation, reference C
+decoder, and acceptance checklist are in
+[`README_MCU_UART_CN.md`](README_MCU_UART_CN.md).
 
 ## Model files
 
