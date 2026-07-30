@@ -5,7 +5,8 @@
 #define ECHO_ENABLE_REFLECTANCE 1U
 #define ECHO_ENABLE_TFMINI      0U
 #define ECHO_ENABLE_BALL_VISION 1U
-#define ECHO_BALL_VISION_USE_UART2 1U
+/* MaixCAM uses UART1 PA9/RX; UART2 remains owned by the ESP link. */
+#define ECHO_BALL_VISION_USE_UART2 0U
 #define ECHO_ENABLE_ESP_LINK    1U
 #define ECHO_ENABLE_OLED        1U
 #define ECHO_ENABLE_IMU         1U

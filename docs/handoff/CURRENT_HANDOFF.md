@@ -2,10 +2,47 @@
 
 ```yaml
 handoff_schema: 1
-updated_at: 2026-07-30T07:15:00+08:00
+updated_at: 2026-07-30T14:25:58+08:00
 updated_by: Codex
-status: oled_ui_refresh_fairness_fixed
+status: camera_rack_line_damping_h4_full_lap_accepted
 ```
+
+## 当前任务：相机架装车后的循迹复测与 H4 整圈
+
+- 用户加装相机大架后观察到直线左右摇摆。修改前遥测确认循迹纠偏与横摆高度相关，主要是
+  差速纠偏反复驱动车体，不是速度 PID 独立振荡；原始数据留在 ignored
+  `tests/artifacts/line_follow_camera_rack_20260730_131518/`。
+- `module/service/h_mission_service.c` 已在直线中心区域降低导数预判和最大纠偏，弯道仍使用
+  原参数，并增加每次最多 8 rpm 的纠偏斜坡；未改速度 PID、前馈、电池补偿、PWM 限幅、
+  通用角度环和安全门控。
+- H4 已从“1500 mm 后停车”改为“B 点锁存 AB 用时后继续整圈，最后回 A 停车”；AB 阶段
+  仍要求 7.5 s 内通过，否则故障停车。
+- 实车完整数据：第一轮 H2 13.55 s、H4 14.78 s，AB 4.72 s 后继续 10.06 s；斜坡版
+  H2/H4/H5 为 13.70/14.64/21.85 s。弯道大跳变从 23 次降到 2 次，用户确认弯道改善，
+  AB 段较稳。机械螺母垫偏和最后整圈初始放置不准造成的偏差不归因于正常控制参数。
+- 最终 H2 中心直线为 6 扫描预判/35 rpm 上限；H5/H6 巡航 70 rpm，预计 24.5--25 s。
+  最终窗口只抓到 70 rpm 整圈后半段 11.65 s，完整计时未单独捕获。用户决定当前效果够用，
+  当前机械版收口；机械再次修改后再做最终复核。
+- App `0 Error / 0 Warning`，HEX SHA-256
+  `6925FF80A61784EE8C3620D993ED9079D4A102A1DFD90F106CE1C38D58A7E369`；CMSIS-DAP
+  `2e4c7219` 烧录/逐字节回读通过，回读 SHA-256
+  `89F64398CF0109E58EC699C13A5C7201E525C8831AC2CCD373F607BE350C4F51`。
+- 最终遥测：红外 125 Hz、控制/IMU/姿态约 100 Hz、CRC 0、deadline 0、I2C 0、IMU
+  ready、任务结束执行器许可关闭。ESP 离线和遥测带宽 drop 仍是已知 Health 告警。
+- UART1 视觉正式切换和本轮循迹/H4 修改已纳入正式收口；用户已有的 `ECHO.uvmpw`、
+  `freertos/keil/freertos_ECHO.uvprojx` 仅为 uVision XML 重排，继续保留且不暂存。
+
+## 当前任务：MaixCAM 恢复到 UART1
+
+- 正式视觉接口现为 MaixCAM `A16/TX -> PA9/UART1_RX`、115200 8N1、可靠共地；
+  UART2 保留给 ESP32。万能板仍不得给 MaixCAM 供电。
+- 根因是 `ECHO_BALL_VISION_USE_UART2=1` 会按设计跳过 UART1 初始化和消费，不是 PA9、
+  IRQ 或 UART1 BSP 损坏。已改回 0；UART0/UART2/UART3 BSP、H 任务和控制算法未改。
+- COM7 实测 100 个递增序号视觉帧：UART1 `2200/2200 B`、有效 100 帧；CRC/格式/重复/
+  丢帧/乱序/overflow/unexpected IRQ 全 0，high-water 12 B。UART2 ESP TX DMA 同期正常。
+- App 0 Error / 0 Warning，HEX SHA-256
+  `D3F6A113C631EB6A7B97B588DEE9134EAB8C8FFE21D763911C619575A9FF8CE2`，已烧录运行；deadline 0。
+- 用户已有的 `ECHO.uvmpw` 与 `freertos/keil/freertos_ECHO.uvprojx` 继续保留，不暂存。
 
 ## 当前任务：OLED/按键显示响应修复
 
@@ -26,51 +63,51 @@ status: oled_ui_refresh_fairness_fixed
   CRC16-CCITT-FALSE；相机请求 60 FPS，队友实测检测和 UART 约 44.4--45.2 Hz。
 - 最新视觉增加 `http://10.5.66.1:8080/status.json`。本轮新增
   `tools/ball_vision_monitor.ps1`，可并行保存相机内部状态和 MCU type 16 摆杆遥测。
-- MCU 已通过 UART2 `PB16/RX` DMA 实现真实视觉解析、球位置 PD、H3 `O -> +50 mm -> -50 mm` 状态机、故障回水平、
+- MCU 已通过 UART1 `PA9/RX` 实现真实视觉解析、球位置 PD、H3 `O -> +50 mm -> -50 mm` 状态机、故障回水平、
   完成保持、结果确认释放、安全急停、Health `VISION OFF` 和 DIAG `VIS` 状态。
 - 视觉最后一帧后超过 120 ms 即保护；已修复旧快照会把该时间延长到约 270 ms 的问题。
 - 视觉上游 11 项测试、type 16 固定帧以及旧 IMU/姿态/TFmini 遥测夹具通过。
-- 固件已烧录并运行；UART2 相机接收约 `33--51 Hz`、UART 错误为 0，张大头方向和
+- 固件已烧录并运行；UART1 固定帧链路已通过 100 帧连续接收测试、UART 错误为 0，张大头方向和
   `+/-70 deg` 电机轴范围已实测。当前 H3 为 `Kp=120`、`Kd=10`、最大 `+/-6 deg`、
   `12 deg/s`，调试阶段 H3 总超时关闭，视觉失效 120 ms 保护保留。
 - 空管 32 帧标定后无球误检为零，但带球测试两次出现约 100 mm 的单帧目标切换；最近一次
   `+7.03 -> -102.06 mm` 仅 52 ms，物理上不可能。H3 5 s/1 cm 尚未通过，当前阻塞在视觉连续性。
-- 供电规则：MaixCAM 只由 USB 供电；万能板不得连接相机 5 V/3.3 V。信号为
-  `MaixCAM A16/TX -> MSPM0 PB16/UART2_RX`，并可靠共地；`A17/RX <- PB15/UART2_TX` 当前非必需。
+- 供电规则：MaixCAM 只由 USB 供电；万能板不得连接相机 5 V/3.3 V。正式信号为
+  `MaixCAM A16/TX -> MSPM0 PA9/UART1_RX` 并可靠共地；UART2 保留给 ESP32。
 - 第一次硬件动作前必须确认水管水平、短曲柄不在死点、机构固定、人员在场且可立即断电。
   先只读双端数据，再做无球低角度方向验证；不得直接放球全幅闭环。
-- 当前 H3/H4/H5/H6、UART2 和 uVision 工程改动将按用户本轮指令提交并推送；`tmp/` 仅为
-  本机遥测与烧录证据，不进入正式仓库。
+- H3/H4/H5/H6 基线、UART1 视觉正式切换和本轮循迹修改已纳入正式收口；`tmp/` 仅为
+  本机遥测与烧录证据，不进入正式仓库，uVision XML 自动重排也不纳入提交。
 - 详细记录：`docs/worklogs/2026-07-30_h3_maixcam_ball_closed_loop.md`。
 
 ## 当前任务：H4/H5/H6 无球底盘行驶
 
-- 唯一正式仓库为 `E:\ECHO`，正式分支为 `main`。任务 1 已提交为
-  `b51fa78 feat: finalize H task 1 line following` 并推送至 `origin/main`；当前 H4 改动未提交。
+- 唯一正式仓库为 `E:\ECHO`，正式分支为 `main`。任务 1 基线为
+  `b51fa78 feat: finalize H task 1 line following`；H4 整圈和后续循迹阻尼修改已纳入正式收口。
 - 用户已有的 `ECHO.uvmpw`、`freertos/keil/freertos_ECHO.uvprojx`、
   `keil/ECHO.uvprojx` 只有 uVision XML 格式重排，按保护规则不暂存、不覆盖。
 - PDF 原文确认：AB 是 A 到 B 的 1.5 m 直线；按键启动开始计时，要求不超过 8 s。最终正式
   H4 还要求钢球保持 O 点 ±1 cm，但用户当前明确先做无球底盘版本，不接球姿态反馈。
 - `H_MISSION_AB_CENTER` 复用任务 1 的标定、连续黑线簇估计、丢线保护和安全门控，但使用独立
-  速度策略：20 rpm 起步，1800 ms 线性升到 110 rpm，1500 mm 请求 80 ms 受控刹车；
-  7500 ms 未完成则故障停机。
+  速度策略：20 rpm 起步，1800 ms 线性升到 110 rpm；1500 mm 处锁存 AB 用时而不停车，
+  随后继续整圈并在 A 点受控刹车。7500 ms 未通过 B 点则故障停机。
 - AB 专用导数预判为 8 扫描，最大差速纠偏 35 rpm；基础速度低于 41 rpm 时，纠偏上限按
   `base - 6 rpm` 继续收紧，避免一侧目标被压到停转。预计无球通过时间约 4.8--5.3 s。
-- H2 任务 1 只做了公共调用参数化，其 100/120/140/75 rpm 速度表、6/18 扫描预判、
-  60/75 rpm 纠偏上限、A 点识别和 80 ms 刹车均未修改。
+- H2 任务 1 保留 100/120/140/75 rpm 速度表、A 点识别和 80 ms 刹车；相机架装车后仅在
+  中心直线区使用 6 扫描预判/35 rpm 纠偏上限，弯道恢复原参数，并增加每 16 ms 最多 8 rpm
+  的纠偏斜坡。
 - 新增 H4 诊断为 `ab_elapsed_ms`、`ab_passed`、`ab_pass_count`、`ab_timeout_count`。
 - H5 `LAP CENTER` 和 H6 `LAP HOLD` 使用相同的底盘速度轨迹：20 rpm 起步、2000 ms 线性
-  升至 80 rpm，之后整圈恒速；预计 6.14 m 用时约 23--25 s。两者当前不读取球位置，未来
+  升至 70 rpm，之后整圈恒速；预计 6.14 m 用时约 24.5--25 s。两者当前不读取球位置，未来
   只通过独立摆杆控制器分别选择 O 点或任意设定点。
 - H5/H6 红外导数预判为 12 扫描，最大差速纠偏 50 rpm；复用 H2 的起点横线离开确认、
   里程/顺时针航向终点使能、五扫描 A 线确认和 80 ms 受控刹车，29000 ms 超时安全停机。
-- 当前 dirty 任务文件为 `module/service/h_mission_service.c/.h`、`docs/PROJECT_STATUS.md`、
-  `docs/handoff/CURRENT_HANDOFF.md` 和本工作日志；不得把三个 uVision 文件或 `tmp/` 暂存。
-- 最新全量构建 FreeRTOS/App 均 0 Error / 0 Warning；App `Code=107352, RO=3780,
-  RW=188, ZI=24656`；HEX SHA-256
-  `918CC8C38776EDB62F4CA7F5C01F3D41B7CA4E5E7EE0AA07E396DA92D64FDBDE`。
-- 用户明确要求不烧录，板子已断电。H4/H5/H6 均未地测，8 s、30 s 和球 ±1 cm 指标全部
-  为 `not run`。下次先烧录后做 H4 无球 AB，确认后再分别做 H5/H6 无球整圈。
+- H4 实测整圈 14.64 s，AB 在 4.72 s 通过；H5 在 80 rpm 基线下实测整圈 21.85 s，最终
+  70 rpm 版仅捕获后半段，完整计时仍待复核。H6 与 H5 共用底盘策略，但尚未单独完整采集。
+- 最新全量构建 FreeRTOS/App 均 0 Error / 0 Warning；App `Code=112792, RO=3876,
+  RW=188, ZI=24944`；HEX SHA-256
+  `6925FF80A61784EE8C3620D993ED9079D4A102A1DFD90F106CE1C38D58A7E369`。
+- 无球底盘部分已经完成当前机械版验证；钢球 `+/-1 cm` 指标仍受视觉连续性阻塞，不得误报通过。
 
 ## 当前任务：513X阶段收尾，下一步测试PCB上的张大头/ZDT
 
