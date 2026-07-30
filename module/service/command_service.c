@@ -7,6 +7,7 @@
 
 #include "bsp_time.h"
 #include "bsp_supply_voltage.h"
+#include "ball_balance_service.h"
 #include "chassis_actuator.h"
 #include "parameter_service.h"
 #include "serial_rx.h"
@@ -40,6 +41,8 @@
 #define COMMAND_ZDT_OP_SPEED    4U
 #define COMMAND_ZDT_OP_POSITION 5U
 #define COMMAND_ZDT_OP_STOP     6U
+#define COMMAND_ZDT_OP_BALL_START 7U
+#define COMMAND_ZDT_OP_BALL_ABORT 8U
 
 #define COMMAND_ZDT_STATUS_ACCEPTED       0U
 #define COMMAND_ZDT_STATUS_BAD_MAGIC      1U
@@ -359,6 +362,13 @@ static void Command_HandleZdtFrame(const uint8_t *payload)
     } else if (operation == COMMAND_ZDT_OP_DESELECT) {
         ZdtStepper_DeselectBackupBackend();
     } else if (operation == COMMAND_ZDT_OP_STATUS) {
+        status = COMMAND_ZDT_STATUS_ACCEPTED;
+    } else if (operation == COMMAND_ZDT_OP_BALL_START) {
+        status = BallBalanceService_CanStartH3(BSP_Time_GetUs()) &&
+            BallBalanceService_RequestStartH3() ?
+            COMMAND_ZDT_STATUS_ACCEPTED : COMMAND_ZDT_STATUS_INVALID;
+    } else if (operation == COMMAND_ZDT_OP_BALL_ABORT) {
+        BallBalanceService_RequestAbort();
         status = COMMAND_ZDT_STATUS_ACCEPTED;
     } else if ((operation < COMMAND_ZDT_OP_ENABLE) ||
                (operation > COMMAND_ZDT_OP_STOP)) {

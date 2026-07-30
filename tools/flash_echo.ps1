@@ -6,7 +6,8 @@ param(
     [ValidateRange(0, 65535)]
     [int]$AdapterPid = 0,
     [ValidateRange(100, 5000)]
-    [int]$AdapterSpeedKhz = 1000
+    [int]$AdapterSpeedKhz = 1000,
+    [switch]$SkipReadbackVerification
 )
 
 $ErrorActionPreference = "Stop"
@@ -72,6 +73,12 @@ Write-Host "SWD frequency: $AdapterSpeedKhz kHz"
 Invoke-EchoOpenOcd -Commands @($programCommand)
 if ($LASTEXITCODE -ne 0) {
     throw "OpenOCD Flash programming failed with exit code $LASTEXITCODE."
+}
+
+if ($SkipReadbackVerification) {
+    Write-Host "Programming succeeded; readback verification skipped." `
+        -ForegroundColor Green
+    return
 }
 
 Write-Host "Programming succeeded; starting byte-for-byte Flash readback verification." -ForegroundColor Cyan

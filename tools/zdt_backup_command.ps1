@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Port,
     [ValidateSet("Status", "Select", "Deselect", "Enable", "Disable",
-        "Speed", "Position", "Stop")]
+        "Speed", "Position", "Stop", "BallStart", "BallAbort")]
     [string]$Action = "Status",
     [ValidateSet("Gen1", "Gen2", "Both")]
     [string]$Axis = "Gen2",
@@ -19,8 +19,9 @@ param(
     [string]$PositionMode = "Absolute",
     [ValidateRange(1, 4294967294)]
     [uint32]$Sequence = 0,
-    [ValidateRange(0.2, 10)]
+    [ValidateRange(0.2, 30)]
     [double]$CaptureSeconds = 1,
+    [string]$RawCapturePath = "",
     [switch]$ConfirmUserPresent,
     [switch]$ConfirmMechanismSuspended,
     [switch]$ConfirmCurrentLimitedSupply,
@@ -34,10 +35,11 @@ $ErrorActionPreference = "Stop"
 $operationMap = @{
     Status = 0; Select = 1; Deselect = 2; Enable = 3
     Disable = 3; Speed = 4; Position = 5; Stop = 6
+    BallStart = 7; BallAbort = 8
 }
 $axisMap = @{ Gen1 = 0; Gen2 = 1; Both = 2 }
 $positionModeMap = @{ RelativeLast = 0; Absolute = 1; RelativeCurrent = 2 }
-$motionAction = $Action -in @("Enable", "Speed", "Position")
+$motionAction = $Action -in @("Enable", "Speed", "Position", "BallStart")
 if ($motionAction -and
     (-not $ConfirmUserPresent -or
      -not $ConfirmMechanismSuspended -or
@@ -157,6 +159,15 @@ try {
 
 [byte[]]$bytes = $capture.ToArray()
 $capture.Dispose()
+if (-not [string]::IsNullOrWhiteSpace($RawCapturePath)) {
+    $resolvedRawCapturePath = [System.IO.Path]::GetFullPath($RawCapturePath)
+    $rawCaptureDirectory = Split-Path -Parent $resolvedRawCapturePath
+    if (-not [string]::IsNullOrWhiteSpace($rawCaptureDirectory)) {
+        New-Item -ItemType Directory -Path $rawCaptureDirectory `
+            -Force | Out-Null
+    }
+    [System.IO.File]::WriteAllBytes($resolvedRawCapturePath, $bytes)
+}
 $ack = $null
 for ($index = 0; $index + 40 -le $bytes.Length; $index++) {
     $payloadLength = Get-U16 $bytes ($index + 4)
