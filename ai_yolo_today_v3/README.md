@@ -1,5 +1,8 @@
 # AI YOLO today v3
 
+Chinese teammate handoff and test entry:
+[`../README_HANDOFF_CN.md`](../README_HANDOFF_CN.md).
+
 This folder is the MaixCAM Pro release for the final `640x128` pipe ROI. It
 keeps the proven UART0 packet, continuity gate, alpha-beta filter, launcher
 ownership, and asynchronous low-rate web preview from `ai_yolo_reviewed_v2`.
