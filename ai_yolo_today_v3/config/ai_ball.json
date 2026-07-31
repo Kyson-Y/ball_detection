@@ -61,15 +61,42 @@
     "baud_rate": 115200,
     "tx_pin": "A16",
     "rx_pin": "A17",
-    "retry_interval_s": 2.0
+    "retry_interval_s": 2.0,
+    "output_hz": 60.0,
+    "max_valid_age_ms": 50,
+    "prediction_horizon_ms": 25
   },
   "status_server": {
     "enabled": true,
     "port": 8080,
-    "preview_fps": 2.0,
+    "update_fps": 15.0,
+    "preview_fps": 0.0,
     "preview_width": 480,
     "preview_height": 360,
     "jpeg_quality": 55
+  },
+  "media": {
+    "enabled": true,
+    "rtsp": {
+      "port": 8554,
+      "width": 160,
+      "height": 120,
+      "fps": 60,
+      "buffer_count": 2,
+      "bitrate": 300000,
+      "public_url": "rtsp://10.5.66.1:8554/live"
+    },
+    "recording": {
+      "source_url": "rtsp://127.0.0.1:8554/live",
+      "directory": "/root/ball_detection/runtime/recordings",
+      "ffmpeg_path": "/usr/bin/ffmpeg",
+      "stop_timeout_s": 12.0
+    },
+    "http": {
+      "host": "0.0.0.0",
+      "port": 8081,
+      "public_url": "http://10.5.66.1:8081/"
+    }
   },
   "thermal": {
     "path": "/sys/class/thermal/thermal_zone0/temp",

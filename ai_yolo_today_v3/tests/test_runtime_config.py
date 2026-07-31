@@ -19,7 +19,7 @@ def test_today_geometry_and_model_contract() -> None:
     }
 
 
-def test_uart_and_preview_contract_remain_compatible() -> None:
+def test_uart_and_media_rate_contract_remain_compatible() -> None:
     config = json.loads((ROOT / "config" / "ai_ball.json").read_text())
     assert config["uart"] == {
         "bus": 0,
@@ -28,6 +28,16 @@ def test_uart_and_preview_contract_remain_compatible() -> None:
         "tx_pin": "A16",
         "rx_pin": "A17",
         "retry_interval_s": 2.0,
+        "output_hz": 60.0,
+        "max_valid_age_ms": 50,
+        "prediction_horizon_ms": 25,
     }
+    assert config["camera"]["fps"] == 60.0
     assert config["status_server"]["port"] == 8080
-    assert config["status_server"]["preview_fps"] == 2.0
+    assert config["status_server"]["update_fps"] == 15.0
+    assert config["status_server"]["preview_fps"] == 0.0
+    assert config["media"]["enabled"] is True
+    assert config["media"]["rtsp"]["width"] == 160
+    assert config["media"]["rtsp"]["height"] == 120
+    assert config["media"]["rtsp"]["fps"] == 60
+    assert config["media"]["rtsp"]["bitrate"] == 300_000

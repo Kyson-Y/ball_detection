@@ -203,7 +203,7 @@ def main() -> int:
     remote_run(client, f"mv {autostart} /maixapp/auto_start.txt")
     remote_run(client, "sync")
 
-    remote_run(client, f"kill -TERM {production[0]['pid']}")
+    remote_run(client, f"kill -INT {production[0]['pid']}")
     wait_for_exit(client, production[0]["pid"], 10.0)
     new_process = wait_for_process(client, PRODUCTION_ARGS, 2.0)
     if new_process is None:
