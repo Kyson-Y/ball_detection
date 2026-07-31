@@ -1,0 +1,35 @@
+{
+  "dataset": "C:\\Users\\HAOSHENNO1\\Documents\\Codex\\2026-07-29\\wo\\ball_position_training_scaffold\\data\\today_final_v3",
+  "images": 1019,
+  "by_split": {
+    "train": 842,
+    "val": 91,
+    "test": 86
+  },
+  "by_category": {
+    "empty_pipe": 242,
+    "ball_static": 340,
+    "ball_motion": 437
+  },
+  "by_provenance": {
+    "empty_negative": 142,
+    "empty_negative_photometric_aug": 100,
+    "stale_capture_negative": 1,
+    "stale_capture_negative_photometric_aug": 1,
+    "static_fixed": 198,
+    "static_fixed_photometric_aug": 140,
+    "manual_accepted": 40,
+    "manual_accepted_photometric_aug": 40,
+    "bootstrap_high_confidence": 163,
+    "bootstrap_high_confidence_photometric_aug": 113,
+    "manual_labeled": 54,
+    "manual_labeled_photometric_aug": 27
+  },
+  "positive_images": 775,
+  "negative_images": 244,
+  "geometry": [
+    640,
+    128
+  ],
+  "manual_reviewed_frames": 94
+}

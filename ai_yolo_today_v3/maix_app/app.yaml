@@ -1,0 +1,8 @@
+id: ball_detection_control
+name: AI Ball Detection Control
+version: 3.0.0
+author: Kyson-Y
+icon: ''
+desc: Today-structure YOLO11 ball tracking, UART output, and web preview
+files:
+  - main.py

@@ -1,0 +1,41 @@
+{
+  "model": "C:\\Users\\HAOSHENNO1\\Documents\\Codex\\2026-07-29\\wo\\ball_position_training_scaffold\\models\\ball_yolo11n_today_v3_320x64.onnx",
+  "providers": [
+    "CPUExecutionProvider"
+  ],
+  "input_shape": [
+    1,
+    3,
+    64,
+    320
+  ],
+  "output_shapes": [
+    [
+      1,
+      5,
+      420
+    ]
+  ],
+  "images": 598,
+  "positive_images": 455,
+  "negative_images": 143,
+  "thresholds": {
+    "0.25": {
+      "positive_misses": 0,
+      "negative_false_positives": 0
+    },
+    "0.5": {
+      "positive_misses": 0,
+      "negative_false_positives": 0
+    },
+    "0.7": {
+      "positive_misses": 0,
+      "negative_false_positives": 0
+    }
+  },
+  "manual_center_error_px": {
+    "median": 0.3364067077636719,
+    "p95": 1.6733039855957024,
+    "max": 3.5757980346679688
+  }
+}

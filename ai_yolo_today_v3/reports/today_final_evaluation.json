@@ -1,0 +1,37 @@
+{
+  "weights": null,
+  "images": 598,
+  "positive_images": 455,
+  "negative_images": 143,
+  "thresholds": {
+    "0.25": {
+      "positive_misses": 0,
+      "negative_false_positives": 0
+    },
+    "0.5": {
+      "positive_misses": 0,
+      "negative_false_positives": 0
+    },
+    "0.7": {
+      "positive_misses": 0,
+      "negative_false_positives": 0
+    }
+  },
+  "manual_frames": 94,
+  "manual_misses_at_050": 0,
+  "manual_center_error_px": {
+    "0.0": 0.0085296630859375,
+    "0.5": 0.2807121276855469,
+    "0.9": 1.2951660156250004,
+    "0.95": 1.6738136291503898,
+    "1.0": 3.5787277221679688
+  },
+  "manual_iou": {
+    "0.0": 0.7094929862916912,
+    "0.5": 0.9274715092057457,
+    "0.9": 0.9689926840713202,
+    "0.95": 0.9797639049622433,
+    "1.0": 0.9910179163046949
+  },
+  "motion_multiple_candidates_at_001": 16
+}
