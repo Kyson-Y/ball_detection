@@ -52,6 +52,14 @@ def read_temperature_mc(path: str):
         return None
 
 
+def thermal_stop_required(config: dict, temperature_mc) -> bool:
+    return (
+        bool(config.get("stop_enabled", True))
+        and temperature_mc is not None
+        and temperature_mc >= int(config["stop_mc"])
+    )
+
+
 def prepare_control_uart(config: dict) -> None:
     if int(config["bus"]) == 0 and not comm.rm_default_comm_listener():
         raise RuntimeError("failed to release Maix default UART0 listener")
@@ -142,7 +150,10 @@ def run(config_path: str) -> int:
     uart_prepared = False
     next_uart_open_at = 0.0
     next_preview_at = 0.0
-    preview_fps = float(status_config["preview_fps"])
+    images_enabled = bool(status_config.get("images_enabled", True))
+    preview_fps = (
+        float(status_config["preview_fps"]) if images_enabled else 0.0
+    )
     preview_interval_s = 1.0 / preview_fps if preview_fps > 0.0 else 0.0
     frames = 0
     uart_packets = 0
@@ -165,7 +176,7 @@ def run(config_path: str) -> int:
 
     try:
         temperature_mc = read_temperature_mc(str(thermal["path"]))
-        if temperature_mc is not None and temperature_mc >= int(thermal["stop_mc"]):
+        if thermal_stop_required(thermal, temperature_mc):
             raise RuntimeError("temperature is too high to start")
 
         cam = camera.Camera(
@@ -333,9 +344,7 @@ def run(config_path: str) -> int:
 
             if frames % int(thermal["check_every_frames"]) == 0:
                 temperature_mc = read_temperature_mc(str(thermal["path"]))
-                if temperature_mc is not None and temperature_mc >= int(
-                    thermal["stop_mc"]
-                ):
+                if thermal_stop_required(thermal, temperature_mc):
                     print("thermal_stop", flush=True)
                     break
 
@@ -365,6 +374,21 @@ def run(config_path: str) -> int:
             ):
                 preview_encoder.submit(frame.copy(), latest_result)
                 next_preview_at = completed_s + preview_interval_s
+
+            if (
+                images_enabled
+                and status_server is not None
+                and status_server.consume_raw_roi_request()
+            ):
+                try:
+                    raw_roi = frame.crop(roi_x, roi_y, roi_w, roi_h)
+                    raw_jpeg = raw_roi.to_jpeg(quality=95)
+                    status_server.update_raw_roi(
+                        bytes(raw_jpeg.to_bytes(copy=True))
+                    )
+                except Exception as exc:
+                    if uart_errors <= 3:
+                        print(f"raw_roi_encode_error error={exc!r}", flush=True)
 
             if status_server is not None:
                 preview_stats = (
@@ -440,6 +464,7 @@ def run(config_path: str) -> int:
                             if temperature_mc is None
                             else temperature_mc / 1000.0
                         ),
+                        "image_stream_enabled": images_enabled,
                         "flags": flags,
                         "uart_errors": uart_errors,
                         "frames": frames,

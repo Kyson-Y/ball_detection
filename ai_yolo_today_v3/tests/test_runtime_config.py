@@ -30,4 +30,11 @@ def test_uart_and_preview_contract_remain_compatible() -> None:
         "retry_interval_s": 2.0,
     }
     assert config["status_server"]["port"] == 8080
-    assert config["status_server"]["preview_fps"] == 2.0
+    assert config["status_server"]["images_enabled"] is False
+    assert config["status_server"]["preview_fps"] == 0.0
+
+
+def test_software_thermal_stop_is_disabled() -> None:
+    config = json.loads((ROOT / "config" / "ai_ball.json").read_text())
+    assert config["thermal"]["stop_enabled"] is False
+    assert config["thermal"]["warning_mc"] == 70000

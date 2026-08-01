@@ -1,0 +1,46 @@
+{
+  "source_weights": "C:\\Users\\HAOSHENNO1\\Documents\\Codex\\2026-07-29\\wo\\ball_position_training_scaffold\\runs\\center_refinement_final_v1\\weights\\best.pt",
+  "source_weights_sha256": "23c4707fa747fe4292e6751d99b61f25a54bc7991874ced22d802d8ee9f21724",
+  "onnx": "C:\\Users\\HAOSHENNO1\\Documents\\Codex\\2026-07-29\\wo\\ball_detection\\ai_yolo_today_v3\\conversion\\ball_yolo11n_center_final_v1_320x64.onnx",
+  "onnx_sha256": "8335190ad189d9e9584d6b1fced0e6702488ffc6302a5de363045121dd965970",
+  "size_bytes": 10440906,
+  "opset": 12,
+  "inputs": [
+    {
+      "name": "images",
+      "shape": [
+        1,
+        3,
+        64,
+        320
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "output0",
+      "shape": [
+        1,
+        5,
+        420
+      ]
+    }
+  ],
+  "class_names": [
+    "ball"
+  ],
+  "normalization": {
+    "color_order": "RGB",
+    "mean": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "scale": [
+      0.00392156862745098,
+      0.00392156862745098,
+      0.00392156862745098
+    ]
+  },
+  "model_type": "yolo11"
+}

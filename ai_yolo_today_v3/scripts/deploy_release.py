@@ -60,6 +60,42 @@ def exact_processes(client, args: str):
     return [process for process in processes(client) if process["args"] == args]
 
 
+def production_processes(client):
+    """Find the app by entry-point path, independent of Python minor version."""
+    entry = f"{APP_DIRECTORY}/main.py"
+    return [
+        process
+        for process in processes(client)
+        if entry in process["args"]
+        and process["comm"].startswith("python")
+    ]
+
+
+def daemon_processes(client):
+    return [
+        process
+        for process in processes(client)
+        if process["comm"] == "launcher_daemon"
+        or DAEMON_ARGS in process["args"]
+    ]
+
+
+def launcher_processes(client):
+    return [
+        process
+        for process in processes(client)
+        if process["comm"] == "launcher"
+        or (
+            LAUNCHER_EXE in process["args"]
+            and "launcher_daemon" not in process["args"]
+        )
+    ]
+
+
+def process_dump(client) -> str:
+    return remote_run(client, "ps -eo pid,ppid,stat,comm,args")[1]
+
+
 def readlink(client, path: str) -> str:
     return remote_run(client, f"readlink -f {path}")[1]
 
@@ -72,6 +108,18 @@ def wait_for_process(client, args: str, timeout_s: float):
             return found[0]
         if len(found) > 1:
             raise RuntimeError(f"multiple matching processes: {args}")
+        time.sleep(0.25)
+    return None
+
+
+def wait_for_production(client, timeout_s: float):
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        found = production_processes(client)
+        if len(found) == 1:
+            return found[0]
+        if len(found) > 1:
+            raise RuntimeError("multiple production app processes")
         time.sleep(0.25)
     return None
 
@@ -132,13 +180,13 @@ def main() -> int:
     import paramiko
 
     root = Path(__file__).resolve().parents[1]
-    mud = root / "models" / "ball_yolo11n_today_v3.mud"
-    cvimodel = root / "models" / "ball_yolo11n_today_v3.cvimodel"
+    mud = root / "models" / "ball_yolo11n_center_final_v1.mud"
+    cvimodel = root / "models" / "ball_yolo11n_center_final_v1.cvimodel"
     if not mud.is_file() or not cvimodel.is_file():
         raise FileNotFoundError(
             "conversion result is missing; add both .mud and .cvimodel first"
         )
-    release_id = f"ai_yolo_today_v3_{time.strftime('%Y%m%d_%H%M%S')}"
+    release_id = f"ai_yolo_center_final_v1_{time.strftime('%Y%m%d_%H%M%S')}"
     release = f"/root/ball_detection/releases/{release_id}"
 
     client = paramiko.SSHClient()
@@ -186,12 +234,20 @@ def main() -> int:
         client.close()
         return 0
 
-    daemon = exact_processes(client, DAEMON_ARGS)
-    production = exact_processes(client, PRODUCTION_ARGS)
+    daemon = daemon_processes(client)
+    production = production_processes(client)
     if len(daemon) != 1 or len(production) != 1:
-        raise RuntimeError("unexpected launcher or app process cardinality")
+        raise RuntimeError(
+            "unexpected launcher or app process cardinality\n"
+            f"daemon_matches={daemon}\nproduction_matches={production}\n"
+            f"remote_processes:\n{process_dump(client)}"
+        )
     if production[0]["ppid"] != daemon[0]["pid"]:
-        raise RuntimeError("production app is not owned by launcher_daemon")
+        raise RuntimeError(
+            "production app is not owned by launcher_daemon\n"
+            f"daemon={daemon}\nproduction={production}\n"
+            f"remote_processes:\n{process_dump(client)}"
+        )
 
     temporary_link = f"{CURRENT_LINK}.new.{int(time.time())}"
     remote_run(client, f"ln -s {release} {temporary_link}")
@@ -205,11 +261,16 @@ def main() -> int:
 
     remote_run(client, f"kill -TERM {production[0]['pid']}")
     wait_for_exit(client, production[0]["pid"], 10.0)
-    new_process = wait_for_process(client, PRODUCTION_ARGS, 2.0)
+    new_process = wait_for_production(client, 2.0)
     if new_process is None:
-        launcher = wait_for_process(client, LAUNCHER_ARGS, 10.0)
-        if launcher is None or launcher["ppid"] != daemon[0]["pid"]:
-            raise RuntimeError("launcher UI did not become ready")
+        launchers = launcher_processes(client)
+        if len(launchers) != 1 or launchers[0]["ppid"] != daemon[0]["pid"]:
+            raise RuntimeError(
+                "launcher UI did not become ready\n"
+                f"launcher_matches={launchers}\n"
+                f"remote_processes:\n{process_dump(client)}"
+            )
+        launcher = launchers[0]
         sftp = client.open_sftp()
         with sftp.open("/tmp/run_app.txt.new", "wb") as handle:
             handle.write(RUN_APP)
@@ -217,9 +278,12 @@ def main() -> int:
         sftp.close()
         remote_run(client, f"kill -TERM {launcher['pid']}")
         wait_for_exit(client, launcher["pid"], 10.0)
-        new_process = wait_for_process(client, PRODUCTION_ARGS, 15.0)
+        new_process = wait_for_production(client, 15.0)
     if new_process is None:
-        raise RuntimeError("new AI app did not start")
+        raise RuntimeError(
+            "new AI app did not start\n"
+            f"remote_processes:\n{process_dump(client)}"
+        )
     print(
         json.dumps(
             {

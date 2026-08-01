@@ -76,6 +76,10 @@ class StatusServer:
         self._preview_seq = 0
         self._preview_updated_at = None
         self._preview_requested_at = None
+        self._raw_roi_jpeg = None
+        self._raw_roi_seq = 0
+        self._raw_roi_updated_at = None
+        self._raw_roi_request_pending = False
         self._calibration = {
             "calibration_state": "idle",
             "calibration_captured_frames": 0,
@@ -113,6 +117,19 @@ class StatusServer:
         with self._lock:
             requested_at = self._preview_requested_at
         return requested_at is not None and time.monotonic() - requested_at <= max_age_s
+
+    def update_raw_roi(self, jpeg: bytes) -> None:
+        with self._lock:
+            self._raw_roi_jpeg = bytes(jpeg)
+            self._raw_roi_seq += 1
+            self._raw_roi_updated_at = time.monotonic()
+
+    def consume_raw_roi_request(self) -> bool:
+        with self._lock:
+            if not self._raw_roi_request_pending:
+                return False
+            self._raw_roi_request_pending = False
+            return True
 
     def request_empty_calibration(self) -> bool:
         with self._lock:
@@ -211,6 +228,10 @@ class StatusServer:
         with self._lock:
             self._preview_requested_at = time.monotonic()
 
+    def _mark_raw_roi_requested(self) -> None:
+        with self._lock:
+            self._raw_roi_request_pending = True
+
     def _handle(self, client) -> None:
         client.settimeout(0.2)
         try:
@@ -242,6 +263,17 @@ class StatusServer:
             else:
                 status = b"200 OK"
             content_type = b"image/jpeg"
+        elif path == b"/dataset_roi.jpg":
+            self._mark_raw_roi_requested()
+            with self._lock:
+                payload = self._raw_roi_jpeg
+                sequence = self._raw_roi_seq
+            if payload is None:
+                payload = b""
+                status = b"503 Service Unavailable"
+            else:
+                status = b"200 OK"
+            content_type = b"image/jpeg"
         elif path in (b"/", b"/index.html"):
             self._mark_preview_requested()
             payload = INDEX_HTML
@@ -251,12 +283,17 @@ class StatusServer:
             payload = b"not found\n"
             content_type = b"text/plain; charset=utf-8"
             status = b"404 Not Found"
+        extra_headers = b""
+        if path == b"/dataset_roi.jpg":
+            extra_headers = b"X-Dataset-Seq: " + str(sequence).encode("ascii") + b"\r\n"
         response = (
             b"HTTP/1.1 "
             + status
             + b"\r\nConnection: close\r\nCache-Control: no-store\r\nContent-Type: "
             + content_type
-            + b"\r\nContent-Length: "
+            + b"\r\n"
+            + extra_headers
+            + b"Content-Length: "
             + str(len(payload)).encode("ascii")
             + b"\r\n\r\n"
             + payload

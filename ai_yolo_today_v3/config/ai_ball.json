@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "model": {
-    "path": "/root/ball_detection/current/models/ball_yolo11n_today_v3.mud",
+    "path": "/root/ball_detection/current/models/ball_yolo11n_center_final_v1.mud",
     "input_width": 320,
     "input_height": 64,
     "dual_buffer": true
@@ -65,8 +65,9 @@
   },
   "status_server": {
     "enabled": true,
+    "images_enabled": false,
     "port": 8080,
-    "preview_fps": 2.0,
+    "preview_fps": 0.0,
     "preview_width": 480,
     "preview_height": 360,
     "jpeg_quality": 55
@@ -75,6 +76,7 @@
     "path": "/sys/class/thermal/thermal_zone0/temp",
     "check_every_frames": 30,
     "warning_mc": 70000,
+    "stop_enabled": false,
     "stop_mc": 75000
   },
   "logging": {

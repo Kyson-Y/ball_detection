@@ -1,5 +1,22 @@
 # AI YOLO today v3
 
+## Final V1 deployed profile
+
+This is the deployed final profile currently running on MaixCAM Pro:
+
+- YOLO11n INT8 model: `ball_yolo11n_center_final_v1.mud` and `.cvimodel`.
+- Camera/NPU detection and UART output remain enabled; the board test is about
+  `59-60 Hz` with `uart_errors=0`.
+- JPEG preview and raw ROI image encoding are disabled to reduce load and
+  temperature. `/status.json` remains available for numeric status only.
+- The application-level `75 C` thermal stop is disabled. Temperature is still
+  reported and the warning flag is retained; MaixCAM hardware protection
+  cannot be disabled by this application.
+
+The corresponding immutable board release is
+`ai_yolo_center_final_v1_20260801_161923`. The previous release remains on the
+board for rollback.
+
 Chinese teammate handoff and test entry:
 [`../README_HANDOFF_CN.md`](../README_HANDOFF_CN.md).
 
@@ -34,8 +51,8 @@ are in `conversion/`.
    `x=320`, and convert with `0.390625 mm/px`.
 8. Update the alpha-beta position/velocity filter only when the measurement is
    valid, then send one CRC-protected 22-byte UART packet.
-9. Update `/status.json`; encode at most 2 JPEG previews per second in a
-   background thread so the web page cannot set the detection rate.
+9. Update numeric fields in `/status.json`; the final deployed profile does
+   not encode JPEG previews or raw ROI images.
 
 Rejected, ambiguous, or missing detections send `DETECTED=0`, position and
 velocity zero, and `control_valid=false`. They are never guessed into valid MCU
@@ -46,8 +63,10 @@ commands.
 - `app/maixcam_ai_ball.py`: camera, NPU, tracking, UART, status, and thermal loop.
 - `app/ai_ball_detector.py`: candidate filtering and continuity association.
 - `app/ball_uart_protocol.py`: 22-byte packet, CRC16, and alpha-beta filter.
-- `app/status_server.py`: web UI, `/status.json`, and `/frame.jpg`.
-- `app/preview_encoder.py`: non-blocking 2 FPS JPEG worker.
+- `app/status_server.py`: web UI and `/status.json`; image output is disabled
+  in the final profile.
+- `app/preview_encoder.py`: retained for rollback/debug profiles, disabled in
+  the final profile.
 - `config/ai_ball.json`: all geometry, thresholds, calibration, UART, and web settings.
 - `scripts/deploy_release.py`: immutable release upload, activation, and autostart.
 - `README_MCU_UART_CN.md`: MCU fields, flags, CRC, C decoder, and receiver rules.
@@ -71,7 +90,8 @@ position or velocity.
 2. Recalibrate only `center_x_px`, `mm_per_pixel`, and possibly `position_sign`.
 3. Tune `confidence_threshold` only from real false-positive/miss evidence.
 4. Tune continuity speed limits from measured physical motion, not to hide bad detections.
-5. Keep preview FPS low until the visual and UART rates remain above 30 Hz.
+5. Keep image output disabled during control tests; enable it only for a
+   separate debug release after checking the thermal margin.
 
 Do not change the MCU packet while tuning the detector. Do not deploy the ONNX
 file directly; MaixCAM requires the MaixHub-generated `.mud` and `.cvimodel`.
